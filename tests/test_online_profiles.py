@@ -75,7 +75,10 @@ def _prepare_fake_bin(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 
 def _run_profile(
-    tmp_path: Path, accelerator: str, action: str = "status"
+    tmp_path: Path,
+    accelerator: str,
+    action: str = "status",
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[str, str, str]:
     fake_bin, docker_log, env_log = _prepare_fake_bin(tmp_path)
     environment = {
@@ -83,6 +86,8 @@ def _run_profile(
         for key, value in os.environ.items()
         if not key.startswith(("LLAMA_", "EMBEDDING_"))
     }
+    if extra_env:
+        environment.update(extra_env)
     environment["PATH"] = f"{fake_bin}:{os.environ['PATH']}"
     environment["MOCK_DOCKER_LOG"] = str(docker_log)
     environment["MOCK_ENV_LOG"] = str(env_log)
@@ -136,6 +141,24 @@ def test_online_gpu_profile_adds_gpu_override_and_does_not_force_offload(
         "LLAMA_GPU_LAYERS_DRAFT": None,
         "EMBEDDING_GPU_LAYERS": None,
     }
+
+
+def test_online_gpu_profile_passes_through_caller_offload_values(
+    tmp_path: Path,
+) -> None:
+    """A caller-supplied GPU profile leaves the offload values untouched."""
+    sentinel = {
+        "LLAMA_GPU_LAYERS": "16",
+        "LLAMA_GPU_LAYERS_DRAFT": "0",
+        "EMBEDDING_GPU_LAYERS": "99",
+    }
+    stdout, stderr, returncode = _run_profile(tmp_path, "gpu", extra_env=sentinel)
+
+    assert returncode == 0, stderr or stdout
+    env_log = (tmp_path / "env.log").read_text(encoding="utf-8")
+    assert env_log.count("{") == 1, "expected exactly one compose invocation"
+    values = ast.literal_eval(env_log.strip())
+    assert values == sentinel
 
 
 @pytest.mark.parametrize("accelerator", ["cpu", "gpu"])

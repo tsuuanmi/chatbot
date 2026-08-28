@@ -30,8 +30,12 @@ None.
 
 ## Tests
 
-`tests/test_imports.py` imports the authoritative modules. Runtime version reporting is
-  exercised through `tests/test_api.py` and `tests/test_integration.py`.
+`tests/test_imports.py::test_runtime_version_matches_pyproject` asserts that
+  `__version__` equals the version declared in `pyproject.toml`. The constant is
+  consumed by `src/api/app.py` (OpenAPI metadata) and `src/api/v1/health.py`
+  (`/health/detailed`); the deployed endpoint is exercised by
+  `tests/test_integration.py` against the live stack, which is deselected from
+  `make check` and does not assert the version field in isolation.
 
 ## Status
 
