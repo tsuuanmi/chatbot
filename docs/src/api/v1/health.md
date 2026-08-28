@@ -18,7 +18,7 @@ No dependency warmup, readiness-check implementation, application-level `/api/v1
 
 - `liveness() -> dict[str, str]`: returns `{"status": "healthy"}` when the process can serve the request.
 - `readiness(response, client) -> dict`: returns aggregate status plus per-dependency checks and mutates the response status to 503 when needed.
-- `detailed_health_check(client) -> dict[str, str]`: returns static health status, configured LLM and embedding model names, and version `1.0.0`.
+- `detailed_health_check(client) -> dict[str, str]`: returns static health status, configured LLM and embedding model names, and the application version from `src._version`.
 - `router`: health-tagged `APIRouter`.
 
 ## Invariants and errors
