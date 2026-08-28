@@ -1,0 +1,165 @@
+name: chatbot
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:991cf50e9eb7dee4c18090849c7f909bafc5a1884cdde2dc3011df7407da09d6
+    container_name: llama-server
+    expose:
+      - "8080"
+    volumes:
+      - ./models:/models:ro
+    restart: unless-stopped
+    environment:
+      LLAMA_API_KEY: ${LLAMA_API_KEY}
+    command: >
+      -m /models/${LLAMA_MODEL_NAME}
+      --mmproj /models/${MMPROJ_MODEL}
+      --model-draft /models/${MTP_MODEL_NAME}
+      --spec-type draft-mtp
+      --spec-draft-n-max ${LLAMA_SPEC_DRAFT_N_MAX:-2}
+      --api-key ${LLAMA_API_KEY}
+      --port 8080
+      --host 0.0.0.0
+      --ctx-size ${LLAMA_CTX_SIZE:-32768}
+      --batch-size 1024
+      --ubatch-size 1024
+      --threads ${LLAMA_THREADS:-12}
+      --threads-batch ${LLAMA_THREADS:-12}
+      --n-gpu-layers ${LLAMA_GPU_LAYERS:-99}
+      --n-gpu-layers-draft ${LLAMA_GPU_LAYERS_DRAFT:-99}
+      --flash-attn on
+      --jinja
+      --no-mmap
+      --cont-batching
+      --temp 0.7
+      --top-p 0.9
+      --top-k 40
+      --reasoning off
+      --parallel 2
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -H 'Authorization: Bearer ${LLAMA_API_KEY}' http://localhost:8080/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  embedding-server:
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:991cf50e9eb7dee4c18090849c7f909bafc5a1884cdde2dc3011df7407da09d6
+    container_name: embedding-server
+    expose:
+      - "8080"
+    volumes:
+      - ./models:/models:ro
+    restart: unless-stopped
+    command: >
+      -m /models/${EMBEDDING_MODEL_NAME}
+      --embedding
+      --api-key ${EMBEDDING_API_KEY}
+      --port 8080
+      --host 0.0.0.0
+      --pooling mean
+      --ctx-size ${EMBEDDING_CTX_SIZE:-2048}
+      --batch-size ${EMBEDDING_BATCH_SIZE:-2048}
+      --ubatch-size ${EMBEDDING_UBATCH_SIZE:-2048}
+      --threads 8
+      --threads-batch 8
+      --n-gpu-layers ${EMBEDDING_GPU_LAYERS:-99}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -H 'Authorization: Bearer ${EMBEDDING_API_KEY}' http://localhost:8080/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  postgres:
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    container_name: chatbot-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  chromadb:
+    image: chromadb/chroma:latest@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
+    container_name: chatbot-chromadb
+    environment:
+      ANONYMIZED_TELEMETRY: "FALSE"
+    expose:
+      - "8000"
+    volumes:
+      - ./databases/chromadb:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8000; printf 'GET /api/v2/heartbeat HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      pull: false
+    container_name: chatbot
+    ports:
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8080}:8080"
+    environment:
+      LLAMA_BASE_URL: http://llama-server:8080/v1
+      LLAMA_API_KEY: ${LLAMA_API_KEY}
+      LLAMA_MODEL_NAME: ${LLAMA_MODEL_NAME}
+      LLAMA_MAX_OUTPUT_TOKENS: ${LLAMA_MAX_OUTPUT_TOKENS:-4096}
+      EMBEDDING_BASE_URL: http://embedding-server:8080/v1
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY}
+      EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: 8000
+      CHROMA_COLLECTION_NAME: ${CHROMA_COLLECTION_NAME}
+      CHROMA_FIGURE_COLLECTION_NAME: ${CHROMA_FIGURE_COLLECTION_NAME:-chatbot_figures}
+      FIGURE_DESCRIPTION_MAX_TOKENS: ${FIGURE_DESCRIPTION_MAX_TOKENS:-768}
+      DOMAIN_MIN_CONFIDENCE: ${DOMAIN_MIN_CONFIDENCE:-0.65}
+      DOMAIN_MIN_MARGIN: ${DOMAIN_MIN_MARGIN:-0.03}
+      DOMAIN_HIGH_RISK_THRESHOLD: ${DOMAIN_HIGH_RISK_THRESHOLD:-0.80}
+      RAG_TOP_K: ${RAG_TOP_K:-5}
+      RAG_MAX_DISTANCE: ${RAG_MAX_DISTANCE:-0.85}
+      RAG_MAX_CHARS: ${RAG_MAX_CHARS:-2000}
+      STARTUP_MAX_ATTEMPTS: ${STARTUP_MAX_ATTEMPTS:-30}
+      STARTUP_RETRY_SECONDS: ${STARTUP_RETRY_SECONDS:-2}
+      API_HOST: 0.0.0.0
+      API_PORT: 8080
+      API_AUTH_ENABLED: ${API_AUTH_ENABLED:-false}
+      API_DOCS_ENABLED: ${API_DOCS_ENABLED:-true}
+      API_MAX_CONCURRENT_REQUESTS: ${API_MAX_CONCURRENT_REQUESTS:-2}
+      API_QUEUE_TIMEOUT_SECONDS: ${API_QUEUE_TIMEOUT_SECONDS:-30}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      ANONYMIZED_TELEMETRY: "FALSE"
+    volumes:
+      - ./data/figures:/app/data/figures:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+      llama-server:
+        condition: service_healthy
+      embedding-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v1/live', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

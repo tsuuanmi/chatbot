@@ -1,0 +1,16 @@
+{
+  "source_id": "sop-dna-qa",
+  "file": "sop-dna-qa-v1.pdf",
+  "title": "Tên chính thức của quy trình kiểm soát chất lượng ADN",
+  "authority": "Đơn vị ban hành có thẩm quyền",
+  "version": "1.0",
+  "effective_date": "2026-01-01",
+  "reviewed_at": "2026-08-12",
+  "reviewer": "reviewer-identifier",
+  "approver": "approver-identifier",
+  "approval_status": "approved",
+  "access_class": "internal",
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "supersedes": null,
+  "max_chunks": 1000
+}

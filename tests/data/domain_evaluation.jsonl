@@ -1,0 +1,15 @@
+{"query":"Giải thích STR trong giám định ADN","label":"IN_DOMAIN"}
+{"query":"Quy trình kiểm soát nhiễm trong xét nghiệm ADN","label":"IN_DOMAIN"}
+{"query":"AI hỗ trợ phân tích STR như thế nào?","label":"IN_DOMAIN"}
+{"query":"Phần mềm phân tích điện di STR","label":"IN_DOMAIN"}
+{"query":"So sánh mtDNA và STR","label":"IN_DOMAIN"}
+{"query":"Cách dùng AI để nấu ăn?","label":"OUT_OF_DOMAIN"}
+{"query":"Phân tích dữ liệu bóng đá","label":"OUT_OF_DOMAIN"}
+{"query":"Phần mềm chỉnh sửa ảnh nào tốt?","label":"OUT_OF_DOMAIN"}
+{"query":"Công nghệ AI là gì?","label":"OUT_OF_DOMAIN"}
+{"query":"Tư vấn đầu tư chứng khoán","label":"OUT_OF_DOMAIN"}
+{"query":"Phân tích kết quả này","label":"CLARIFY"}
+{"query":"Cấu trúc của nó?","label":"CLARIFY"}
+{"query":"Giải thích ảnh này","label":"CLARIFY"}
+{"query":"Mẫu này có phù hợp không?","label":"CLARIFY"}
+{"query":"Cho ví dụ?","label":"CLARIFY"}

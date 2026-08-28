@@ -1,0 +1,20 @@
+services:
+  llama-server:
+    image: ${LLAMA_GPU_IMAGE:?Set LLAMA_GPU_IMAGE}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  embedding-server:
+    image: ${LLAMA_GPU_IMAGE:?Set LLAMA_GPU_IMAGE}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
