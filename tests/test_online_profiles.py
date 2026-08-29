@@ -164,6 +164,37 @@ def test_online_gpu_start_stops_before_compose_when_cuda_is_unavailable(
     assert " compose " not in docker_log
 
 
+def test_online_auto_profile_falls_back_to_cpu_when_cuda_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    _, stderr, returncode = _run_profile(
+        tmp_path,
+        "auto",
+        action="start",
+        extra_env={"MOCK_CUDA_UNAVAILABLE": "1"},
+    )
+
+    assert returncode == 0
+    assert "NVIDIA GPU container validation failed; using the CPU profile." in stderr
+    docker_log = (tmp_path / "docker.log").read_text(encoding="utf-8")
+    assert "docker-compose.gpu.yml" not in docker_log
+    values = [
+        ast.literal_eval(line)
+        for line in (tmp_path / "env.log").read_text(encoding="utf-8").splitlines()
+    ]
+    assert (
+        values
+        == [
+            {
+                "LLAMA_GPU_LAYERS": "0",
+                "LLAMA_GPU_LAYERS_DRAFT": "0",
+                "EMBEDDING_GPU_LAYERS": "0",
+            }
+        ]
+        * 4
+    )
+
+
 def test_online_gpu_profile_passes_through_caller_offload_values(
     tmp_path: Path,
 ) -> None:

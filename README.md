@@ -59,10 +59,12 @@ curl -L "https://huggingface.co/unsloth/embeddinggemma-300m-GGUF/resolve/6661a65
 ```
 
 Deployment supports CPU and NVIDIA GPU profiles. The offline installer selects the
-profile explicitly with `--gpu yes|no` (`yes` requires the NVIDIA driver and NVIDIA
-Container Toolkit and fails if unavailable; `no` runs CPU-only). The online
+profile explicitly with `--gpu yes|no` (`yes` requires a supported 6 GiB NVIDIA GPU,
+the NVIDIA driver, and NVIDIA Container Toolkit and fails if unavailable; `no` runs
+CPU-only). The online
 development flow (`make start`) still supports `ACCELERATOR=auto|cpu|gpu`, where
-`auto` uses GPU only when the NVIDIA driver and Docker NVIDIA runtime are available.
+`auto` uses GPU only when the NVIDIA driver, Docker NVIDIA runtime, and CUDA container
+validation succeed; otherwise it uses CPU.
 CPU is correctness-compatible but substantially slower for generation and multimodal
 indexing.
 

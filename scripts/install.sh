@@ -26,6 +26,7 @@ step_number=0
 current_step="initialization"
 total_steps=14
 readonly residual_gpu_limit_mb=1024
+readonly minimum_gpu_memory_mib=6144
 
 command -v tee >/dev/null 2>&1 || {
   echo "Missing prerequisite: tee" >&2
@@ -332,6 +333,28 @@ LLAMA_GPU_IMAGE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]
 if [[ "$ACCELERATOR" == "gpu" ]] && ! verify_gpu_container "$LLAMA_GPU_IMAGE"; then
   echo "CUDA container validation failed for $LLAMA_GPU_IMAGE." >&2
   exit 1
+fi
+if [[ "$ACCELERATOR" == "gpu" ]]; then
+  if ! gpu_total_memory_output="$(
+    nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>&1
+  )"; then
+    echo "Could not measure NVIDIA GPU total memory:" >&2
+    echo "$gpu_total_memory_output" >&2
+    exit 1
+  fi
+  if ! awk -v minimum="$minimum_gpu_memory_mib" '
+    {
+      value = $0
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      if (value !~ /^[0-9]+([.][0-9]+)?$/ || value < minimum) exit 1
+      count += 1
+    }
+    END { if (count == 0) exit 1 }
+  ' <<< "$gpu_total_memory_output"; then
+    echo "The GPU profile requires at least ${minimum_gpu_memory_mib} MiB on every NVIDIA GPU." >&2
+    echo "$gpu_total_memory_output" >&2
+    exit 1
+  fi
 fi
 log "Required image tags are available for the $ACCELERATOR profile"
 

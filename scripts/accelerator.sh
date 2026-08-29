@@ -85,8 +85,13 @@ run_online() {
     start)
       if [[ "$profile" == "gpu" ]] && ! verify_gpu_container \
         "ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:b2497f8834f5ecb4e38530f6bf2734b8e0be107ff48e4720145911c86930f2ce"; then
-        echo "CUDA container validation failed for the GPU profile." >&2
-        return 1
+        if [[ "$requested" == "auto" ]]; then
+          echo "NVIDIA GPU container validation failed; using the CPU profile." >&2
+          profile="cpu"
+        else
+          echo "CUDA container validation failed for the GPU profile." >&2
+          return 1
+        fi
       fi
       run_online_compose "$profile" build chatbot
       run_online_compose "$profile" up -d --wait \

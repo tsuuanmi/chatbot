@@ -259,6 +259,7 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
           exit 42
         fi
         case "$*" in
+          *--query-gpu=memory.total*) printf '%s' "${MOCK_GPU_MEMORY_TOTAL:-6144}" ;;
           *--query-gpu=memory.used*)
             if [ "${MOCK_GPU_QUERY_FAIL:-0}" = 1 ]; then
               echo "mock GPU query failure" >&2
@@ -404,6 +405,7 @@ def _run_installer(
     curl_fails: bool = False,
     docker_ps_fails: bool = False,
     gpu_memory_used: int | str = 0,
+    gpu_memory_total: int | str = 6144,
     gpu_processes: str = "",
     gpu_query_fails: bool = False,
     gpu: str = "yes",
@@ -427,6 +429,7 @@ def _run_installer(
             "MOCK_CURL_FAIL": "1" if curl_fails else "0",
             "MOCK_DOCKER_PS_FAIL": "1" if docker_ps_fails else "0",
             "MOCK_GPU_MEMORY_USED": str(gpu_memory_used),
+            "MOCK_GPU_MEMORY_TOTAL": str(gpu_memory_total),
             "MOCK_GPU_PROCESSES": gpu_processes,
             "MOCK_GPU_QUERY_FAIL": "1" if gpu_query_fails else "0",
             "MOCK_NVIDIA_RUNTIME": "1" if nvidia_runtime else "0",
@@ -568,6 +571,19 @@ def test_installer_uses_cpu_without_nvidia_support(tmp_path: Path) -> None:
     assert "--gpus all" not in commands
     assert "docker compose --project-name" in commands
     assert "docker-compose.offline.gpu.yml" not in commands
+
+
+def test_installer_rejects_under_capacity_gpu_before_cleanup(
+    tmp_path: Path,
+) -> None:
+    result, release, command_log, _ = _run_installer(tmp_path, gpu_memory_total=6143)
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert "requires at least 6144 MiB" in result.stdout
+    commands = command_log.read_text(encoding="utf-8")
+    assert "--query-gpu=memory.total" in commands
+    assert "docker rm -f" not in commands
 
 
 def test_installer_rejects_gpu_without_nvidia_runtime_before_cleanup(

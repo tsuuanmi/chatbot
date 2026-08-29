@@ -28,11 +28,13 @@ The embedding service loads `embeddinggemma-300M-Q8_0.gguf`. All four files live
 
 MTP speculative decoding is available with `--spec-type draft-mtp`. Deployment uses
 a CPU-safe base Compose file and a GPU override. The offline installer selects the
-profile explicitly with `--gpu yes|no` (`yes` requires and validates the NVIDIA host
-and CUDA image, failing rather than falling back; `no` is CPU-only) and persists it to
+profile explicitly with `--gpu yes|no` (`yes` requires and validates a supported 6 GiB
+NVIDIA GPU, host runtime, and CUDA image, failing rather than falling back; `no` is
+CPU-only) and persists it to
 `.env`. The online development flow (`make start`) still supports
 `ACCELERATOR=auto|cpu|gpu`, where `auto` selects GPU only when its NVIDIA host
-prerequisites are available. The validated GTX 1660 Super GPU
+prerequisites and CUDA container validation succeed; otherwise it uses CPU. The
+validated GTX 1660 Super GPU
 profile uses one generation slot, 16 main-model GPU layers, an 8192-token context,
 full EmbeddingGemma offload, and draft offload disabled; CPU uses zero offload layers.
 

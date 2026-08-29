@@ -195,8 +195,9 @@ chmod +x install.sh
 # or: ./install.sh --gpu yes --mode online  # build/pull images instead of loading them
 ```
 
-`--gpu yes` requires and validates the NVIDIA host and loaded CUDA image; it fails
-instead of falling back to CPU. `--gpu no` installs CPU-only. `--mode` defaults to
+`--gpu yes` requires and validates a 6 GiB NVIDIA GPU, the NVIDIA host, and the loaded
+CUDA image; it fails instead of falling back to CPU. `--gpu no` installs CPU-only.
+`--mode` defaults to
 `offline`; `--mode online` builds and pulls images via `accelerator.sh online` instead
 of loading `images/runtime-images.tar`, and skips the offline firewall, client
 credential, and boot-marker hardening. The chosen `cpu` or `gpu` profile is written to
@@ -227,7 +228,7 @@ The installer performs these actions:
 1. validates required files, commands, architecture, and installation state;
 2. detects and validates the server address, interface, and trusted LAN CIDR;
 3. checks four model filenames and their `models/SHA256SUMS` checksums, release checksums, free space, Docker, and the selected profile;
-4. loads images, confirms CPU and CUDA image tags, and validates CUDA container access only for GPU;
+4. loads images, confirms CPU and CUDA image tags, and validates CUDA container access and at least 6 GiB on every NVIDIA GPU before cleanup;
 5. force-removes containers identified by legacy chatbot names or Compose labels and
    deletes their attached/orphaned volumes, while preserving unrelated Docker resources;
 6. for GPU only, requires successful NVIDIA total-memory and process queries, warns
