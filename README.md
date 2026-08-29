@@ -58,11 +58,13 @@ curl -L "https://huggingface.co/unsloth/embeddinggemma-300m-GGUF/resolve/6661a65
   -o models/embeddinggemma-300M-Q8_0.gguf
 ```
 
-Deployment supports CPU and NVIDIA GPU profiles. `ACCELERATOR=auto` (the default)
-uses GPU only when the NVIDIA driver and Docker NVIDIA runtime are available;
-`ACCELERATOR=cpu` or `ACCELERATOR=gpu` selects explicitly. CPU is correctness-
-compatible but substantially slower for generation and multimodal indexing. GPU mode
-requires the NVIDIA driver and NVIDIA Container Toolkit.
+Deployment supports CPU and NVIDIA GPU profiles. The offline installer selects the
+profile explicitly with `--gpu yes|no` (`yes` requires the NVIDIA driver and NVIDIA
+Container Toolkit and fails if unavailable; `no` runs CPU-only). The online
+development flow (`make start`) still supports `ACCELERATOR=auto|cpu|gpu`, where
+`auto` uses GPU only when the NVIDIA driver and Docker NVIDIA runtime are available.
+CPU is correctness-compatible but substantially slower for generation and multimodal
+indexing.
 
 ## Configuration
 
@@ -152,7 +154,7 @@ On the Internet-connected preparation computer:
 
 ```bash
 cd /home/superman/workspaces/chatbotbca
-make prepare VERSION=0.2.3
+make prepare
 ```
 
 Output:
@@ -160,25 +162,28 @@ Output:
 ```text
 /home/superman/workspaces/chatbot_bca.zip   committed Git HEAD source and installer
 /home/superman/workspaces/images.zip    exported Docker runtime images
+/home/superman/workspaces/models.zip    the four GGUF model files with checksums
 ```
 
-Preparation requires a clean Git working tree. Application source is read from
-`git archive HEAD`, and the release manifest records that commit. GGUF models and
-the host `.venv` are not included in either ZIP. Python runtime dependencies,
-including those used to index documents and figures, are already installed in the
-application image inside `images.zip`. The image archive includes both pinned CPU and
-CUDA llama.cpp servers so one release can install on either host type.
+Preparation requires a clean Git working tree and the four GGUF files present in
+`models/`. Application source is read from `git archive HEAD`, and the release
+manifest records that commit. The GGUF models are packaged into `models.zip` with a
+`SHA256SUMS` file; they are not part of `chatbot_bca.zip` or `images.zip`. Python
+runtime dependencies, including those used to index documents and figures, are already
+installed in the application image inside `images.zip`. The image archive includes
+both pinned CPU and CUDA llama.cpp servers so one release can install on either host
+type.
 
-On the dedicated target computer, extract both ZIPs into the same directory:
+On the dedicated target computer, extract all three ZIPs into the same directory:
 
 ```bash
 cd /home/superman/workspaces
 unzip /path/to/chatbot_bca.zip
 unzip /path/to/images.zip
+unzip /path/to/models.zip
 cd chatbotbca
-mkdir -p models
-# Place the four GGUF files in ./models.
-./install.sh
+./install.sh --gpu no          # CPU profile
+# or: ./install.sh --gpu yes   # require the NVIDIA GPU profile
 ```
 
 The installer detects the primary LAN IPv4 address and subnet, removes recognized

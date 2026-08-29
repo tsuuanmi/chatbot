@@ -63,6 +63,13 @@ def _prepare_release(tmp_path: Path) -> Path:
     (release / "images/runtime-images.tar").write_bytes(b"mock image archive")
     for model_name in MODEL_NAMES:
         (release / "models" / model_name).write_bytes(b"mock model")
+    model_checksum_lines = [
+        f"{hashlib.sha256((release / 'models' / name).read_bytes()).hexdigest()}  {name}"
+        for name in MODEL_NAMES
+    ]
+    (release / "models" / "SHA256SUMS").write_text(
+        "\n".join(model_checksum_lines) + "\n", encoding="utf-8"
+    )
 
     manifest = {
         "format_version": 6,
@@ -399,7 +406,7 @@ def _run_installer(
     gpu_memory_used: int | str = 0,
     gpu_processes: str = "",
     gpu_query_fails: bool = False,
-    accelerator: str = "auto",
+    gpu: str = "yes",
     nvidia_runtime: bool = True,
     nvidia_host_fails: bool = False,
     cuda_unavailable: bool = False,
@@ -422,7 +429,6 @@ def _run_installer(
             "MOCK_GPU_MEMORY_USED": str(gpu_memory_used),
             "MOCK_GPU_PROCESSES": gpu_processes,
             "MOCK_GPU_QUERY_FAIL": "1" if gpu_query_fails else "0",
-            "ACCELERATOR": accelerator,
             "MOCK_NVIDIA_RUNTIME": "1" if nvidia_runtime else "0",
             "MOCK_NVIDIA_HOST_FAIL": "1" if nvidia_host_fails else "0",
             "MOCK_CUDA_UNAVAILABLE": "1" if cuda_unavailable else "0",
@@ -434,7 +440,7 @@ def _run_installer(
     )
     environment.pop("OFFLINE_ENV", None)
     result = subprocess.run(
-        ["bash", "./install.sh"],
+        ["bash", "./install.sh", "--gpu", gpu],
         cwd=release,
         env=environment,
         capture_output=True,
@@ -546,7 +552,7 @@ def test_installer_completes_with_five_clients_and_host_automation(
 def test_installer_uses_cpu_without_nvidia_support(tmp_path: Path) -> None:
     result, release, command_log, _ = _run_installer(
         tmp_path,
-        accelerator="cpu",
+        gpu="no",
         nvidia_runtime=False,
         nvidia_host_fails=True,
     )
@@ -564,32 +570,11 @@ def test_installer_uses_cpu_without_nvidia_support(tmp_path: Path) -> None:
     assert "docker-compose.offline.gpu.yml" not in commands
 
 
-def test_installer_auto_falls_back_to_cpu_without_nvidia_runtime(
-    tmp_path: Path,
-) -> None:
-    result, release, command_log, _ = _run_installer(tmp_path, nvidia_runtime=False)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "NVIDIA GPU support is unavailable; using the CPU profile" in result.stdout
-    assert "ACCELERATOR=cpu" in (release / ".env").read_text(encoding="utf-8")
-    assert "--gpus all" not in command_log.read_text(encoding="utf-8")
-
-
-def test_installer_auto_falls_back_when_cuda_container_is_unavailable(
-    tmp_path: Path,
-) -> None:
-    result, release, _, _ = _run_installer(tmp_path, cuda_unavailable=True)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "CUDA container validation failed; using the CPU profile" in result.stdout
-    assert "ACCELERATOR=cpu" in (release / ".env").read_text(encoding="utf-8")
-
-
 def test_installer_rejects_gpu_without_nvidia_runtime_before_cleanup(
     tmp_path: Path,
 ) -> None:
     result, release, command_log, _ = _run_installer(
-        tmp_path, accelerator="gpu", nvidia_runtime=False
+        tmp_path, gpu="yes", nvidia_runtime=False
     )
 
     assert result.returncode != 0
@@ -599,12 +584,13 @@ def test_installer_rejects_gpu_without_nvidia_runtime_before_cleanup(
 
 
 def test_installer_rejects_unknown_accelerator_before_cleanup(tmp_path: Path) -> None:
-    result, release, command_log, _ = _run_installer(tmp_path, accelerator="tpu")
+    result, release, command_log, _ = _run_installer(tmp_path, gpu="tpu")
 
     assert result.returncode != 0
     assert not (release / ".env").exists()
-    assert "ACCELERATOR must be auto, cpu, or gpu" in result.stdout
-    assert "docker rm -f" not in command_log.read_text(encoding="utf-8")
+    assert "--gpu must be yes or no" in result.stdout
+    commands = command_log.read_text(encoding="utf-8") if command_log.is_file() else ""
+    assert "docker rm -f" not in commands
 
 
 def test_installer_rolls_back_generated_state_after_readiness_failure(

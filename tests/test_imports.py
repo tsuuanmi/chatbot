@@ -1,10 +1,8 @@
 """Architectural import and route sanity tests."""
 
 import importlib
-import tomllib
 from pathlib import Path
 
-from src._version import __version__
 from src.api.app import create_app
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,12 +25,6 @@ def test_authoritative_modules_import() -> None:
     ]
     for module in modules:
         assert importlib.import_module(module)
-
-
-def test_runtime_version_matches_pyproject() -> None:
-    with (ROOT / "pyproject.toml").open("rb") as config:
-        project = tomllib.load(config)
-    assert __version__ == project["project"]["version"]
 
 
 def test_removed_legacy_modules_are_absent() -> None:

@@ -5,9 +5,9 @@ PYTEST := .venv/bin/pytest
 RUFF := .venv/bin/ruff
 MODE ?= online
 ACCELERATOR ?= auto
-VERSION ?= 0.2.3
 CHATBOT_OUTPUT ?= /home/superman/workspaces/chatbot_bca.zip
 IMAGES_OUTPUT ?= /home/superman/workspaces/images.zip
+MODELS_OUTPUT ?= /home/superman/workspaces/models.zip
 
 help:
 	@echo "Chatbot BCA"
@@ -20,12 +20,13 @@ help:
 	@echo "  make stop [MODE=...]       Stop the selected stack"
 	@echo "  make status [MODE=...]     Show the selected stack status"
 	@echo "  make index [MODE=...]      Rebuild the selected stack indexes"
-	@echo "  make prepare               Create chatbot_bca.zip and images.zip from Git HEAD"
+	@echo "  make prepare               Create chatbot_bca.zip, images.zip, and models.zip from Git HEAD"
 	@echo "  make clean                 Remove generated Python caches"
 	@echo
-	@echo "Variables: MODE=online|offline ACCELERATOR=auto|cpu|gpu VERSION=$(VERSION)"
+	@echo "Variables: MODE=online|offline ACCELERATOR=auto|cpu|gpu"
 	@echo "           CHATBOT_OUTPUT=$(CHATBOT_OUTPUT)"
 	@echo "           IMAGES_OUTPUT=$(IMAGES_OUTPUT)"
+	@echo "           MODELS_OUTPUT=$(MODELS_OUTPUT)"
 
 setup:
 	uv sync --dev --frozen
@@ -72,7 +73,7 @@ index: check-mode
 	fi
 
 prepare:
-	./scripts/prepare.sh "$(VERSION)" "$(CHATBOT_OUTPUT)" "$(IMAGES_OUTPUT)"
+	./scripts/prepare.sh "$(CHATBOT_OUTPUT)" "$(IMAGES_OUTPUT)" "$(MODELS_OUTPUT)"
 
 clean:
 	find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .ruff_cache \) -prune -exec rm -rf {} +

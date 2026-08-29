@@ -15,7 +15,8 @@ LAN_CIDR="${LAN_CIDR:-}"
 HTTP_PORT="${HTTP_PORT:-80}"
 SSH_PORT="${SSH_PORT:-22}"
 CLIENT_COUNT="${CLIENT_COUNT:-5}"
-ACCELERATOR_REQUESTED="${ACCELERATOR:-auto}"
+GPU=""
+MODE="offline"
 ACCELERATOR=""
 INSTALL_MARKER="$INSTALL_DIR/config/.installed"
 INSTALL_LOG="$INSTALL_DIR/install.log"
@@ -23,7 +24,7 @@ installation_started=false
 installation_complete=false
 step_number=0
 current_step="initialization"
-readonly total_steps=14
+total_steps=14
 readonly residual_gpu_limit_mb=1024
 
 command -v tee >/dev/null 2>&1 || {
@@ -70,6 +71,26 @@ print_startup_diagnostics() {
     postgres chromadb llama-server embedding-server chatbot proxy >&2 || true
 }
 
+verify_models() {
+  local required_models=(
+    gemma-4-E2B-it-Q4_K_M.gguf
+    mmproj-gemma-4-E2B-it-bf16.gguf
+    mtp-gemma-4-E2B-it.gguf
+    embeddinggemma-300M-Q8_0.gguf
+  )
+  for model in "${required_models[@]}"; do
+    [[ -f "$MODEL_DIR/$model" ]] || {
+      echo "Missing model: $MODEL_DIR/$model" >&2
+      echo "Extract models.zip into $MODEL_DIR or place all four GGUF files there, then run install.sh again." >&2
+      return 1
+    }
+    log "Found model filename: $model"
+  done
+  if [[ -f "$MODEL_DIR/SHA256SUMS" ]]; then
+    (cd "$MODEL_DIR" && sha256sum -c SHA256SUMS)
+  fi
+}
+
 step() {
   step_number=$((step_number + 1))
   current_step="$*"
@@ -83,10 +104,46 @@ report_error() {
 }
 trap report_error ERR
 
-if (( $# != 0 )); then
-  echo "usage: ./install.sh" >&2
-  echo "optional environment: SERVER_ADDRESS, LAN_CIDR, BIND_ADDRESS, HTTP_PORT, SSH_PORT, CLIENT_COUNT, ACCELERATOR" >&2
+usage() {
+  echo "usage: $0 --gpu yes|no [--mode offline|online]" >&2
+  echo "optional environment: SERVER_ADDRESS, LAN_CIDR, BIND_ADDRESS, HTTP_PORT, SSH_PORT, CLIENT_COUNT" >&2
+}
+
+while (( $# != 0 )); do
+  case "$1" in
+    --gpu)
+      [[ -n "${2:-}" ]] || { echo "--gpu requires an argument" >&2; usage; exit 2; }
+      GPU="$2"; shift 2 ;;
+    --gpu=*)
+      GPU="${1#--gpu=}"; shift ;;
+    --mode)
+      [[ -n "${2:-}" ]] || { echo "--mode requires an argument" >&2; usage; exit 2; }
+      MODE="$2"; shift 2 ;;
+    --mode=*)
+      MODE="${1#--mode=}"; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *)
+      echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+[[ "$GPU" == "yes" || "$GPU" == "no" ]] || {
+  echo "--gpu must be yes or no" >&2
+  usage
   exit 2
+}
+[[ "$MODE" == "offline" || "$MODE" == "online" ]] || {
+  echo "--mode must be offline or online" >&2
+  usage
+  exit 2
+}
+if [[ "$GPU" == "yes" ]]; then
+  ACCELERATOR="gpu"
+else
+  ACCELERATOR="cpu"
+fi
+if [[ "$MODE" == "online" ]]; then
+  total_steps=4
 fi
 
 cleanup_incomplete_installation() {
@@ -127,7 +184,12 @@ rollback_incomplete_installation() {
 trap rollback_incomplete_installation EXIT
 
 step "Validate installer arguments and prerequisites"
-for command in awk curl docker ip openssl python3 sha256sum sudo systemctl ufw iptables; do
+if [[ "$MODE" == "online" ]]; then
+  required_commands=(docker sha256sum)
+else
+  required_commands=(awk curl docker ip openssl python3 sha256sum sudo systemctl ufw iptables)
+fi
+for command in "${required_commands[@]}"; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "Missing prerequisite: $command" >&2
     exit 1
@@ -138,45 +200,75 @@ docker compose version >/dev/null
   echo "chatbot_bca.zip requires an x86_64 target computer." >&2
   exit 1
 }
-[[ "$CLIENT_COUNT" =~ ^[0-9]+$ ]] \
-  && (( CLIENT_COUNT >= 1 && CLIENT_COUNT <= 99 )) || {
-  echo "CLIENT_COUNT must be an integer from 1 through 99." >&2
-  exit 1
-}
-[[ -e "$INSTALL_MARKER" ]] && {
-  echo "This folder is already configured." >&2
-  echo "Use ./scripts/offline/offline.sh start instead of running install.sh again." >&2
-  exit 1
-}
-if [[ -e "$INSTALL_DIR/.env" ]]; then
-  [[ "${RESET_INCOMPLETE_INSTALL:-}" == "YES" ]] || {
-    echo "An incomplete installation was found." >&2
-    echo "Re-run with RESET_INCOMPLETE_INSTALL=YES to reset and retry." >&2
+if [[ "$MODE" == "offline" ]]; then
+  [[ "$CLIENT_COUNT" =~ ^[0-9]+$ ]] \
+    && (( CLIENT_COUNT >= 1 && CLIENT_COUNT <= 99 )) || {
+    echo "CLIENT_COUNT must be an integer from 1 through 99." >&2
     exit 1
   }
-  cleanup_incomplete_installation
+  [[ -e "$INSTALL_MARKER" ]] && {
+    echo "This folder is already configured." >&2
+    echo "Use ./scripts/offline/offline.sh start instead of running install.sh again." >&2
+    exit 1
+  }
+  if [[ -e "$INSTALL_DIR/.env" ]]; then
+    [[ "${RESET_INCOMPLETE_INSTALL:-}" == "YES" ]] || {
+      echo "An incomplete installation was found." >&2
+      echo "Re-run with RESET_INCOMPLETE_INSTALL=YES to reset and retry." >&2
+      exit 1
+    }
+    cleanup_incomplete_installation
+  fi
+  [[ -f "$INSTALL_DIR/SHA256SUMS" \
+    && -f "$INSTALL_DIR/release-manifest.json" \
+    && -f "$INSTALL_DIR/images/runtime-images.tar" \
+    && -f "$INSTALL_DIR/docker-compose.offline.yml" \
+    && -f "$INSTALL_DIR/docker-compose.offline.gpu.yml" \
+    && -f "$INSTALL_DIR/scripts/accelerator.sh" \
+    && -f "$INSTALL_DIR/scripts/offline/configure_host.sh" \
+    && -f "$INSTALL_DIR/scripts/offline/detect_network.py" ]] || {
+    echo "Required release files are missing or incomplete." >&2
+    echo "Extract chatbot_bca.zip, images.zip, and models.zip into the same parent directory." >&2
+    exit 1
+  }
+else
+  [[ -f "$INSTALL_DIR/docker-compose.yml" \
+    && -f "$INSTALL_DIR/docker-compose.gpu.yml" \
+    && -f "$INSTALL_DIR/scripts/accelerator.sh" \
+    && -f "$INSTALL_DIR/.env.example" ]] || {
+    echo "Required online files are missing or incomplete." >&2
+    exit 1
+  }
 fi
-[[ -f "$INSTALL_DIR/SHA256SUMS" \
-  && -f "$INSTALL_DIR/release-manifest.json" \
-  && -f "$INSTALL_DIR/images/runtime-images.tar" \
-  && -f "$INSTALL_DIR/docker-compose.offline.yml" \
-  && -f "$INSTALL_DIR/docker-compose.offline.gpu.yml" \
-  && -f "$INSTALL_DIR/scripts/accelerator.sh" \
-  && -f "$INSTALL_DIR/scripts/offline/configure_host.sh" \
-  && -f "$INSTALL_DIR/scripts/offline/detect_network.py" ]] || {
-  echo "Required release files are missing or incomplete." >&2
-  echo "Extract both chatbot_bca.zip and images.zip into the same parent directory." >&2
-  exit 1
-}
 # shellcheck source=accelerator.sh
 source "$INSTALL_DIR/scripts/accelerator.sh"
-if ! ACCELERATOR="$(resolve_accelerator "$ACCELERATOR_REQUESTED")"; then
+if [[ "$ACCELERATOR" == "gpu" ]] && ! gpu_host_ready; then
   exit 1
 fi
 log "All required host commands and release entry files are present"
 log "Selected accelerator profile: $ACCELERATOR"
-log "Requesting administrator access required for automatic firewall setup"
-sudo -v
+if [[ "$MODE" == "offline" ]]; then
+  log "Requesting administrator access required for automatic firewall setup"
+  sudo -v
+fi
+
+if [[ "$MODE" == "online" ]]; then
+  step "Verify GGUF model files"
+  verify_models
+  step "Prepare online configuration"
+  if [[ ! -f "$INSTALL_DIR/.env" ]]; then
+    cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
+    chmod 600 "$INSTALL_DIR/.env"
+    log "Copied .env.example to .env"
+  else
+    log "Using existing .env"
+  fi
+  step "Start the online chatbot stack"
+  "$INSTALL_DIR/scripts/accelerator.sh" online "$ACCELERATOR" start
+  installation_complete=true
+  log "Online chatbot stack is ready: $INSTALL_DIR"
+  exit 0
+fi
 
 step "Detect the primary LAN address and subnet"
 network_selection="$(
@@ -193,20 +285,7 @@ log "Selected server address: $SERVER_ADDRESS"
 log "Selected trusted LAN: $LAN_CIDR"
 
 step "Verify release files, model filenames, and free space"
-required_models=(
-  gemma-4-E2B-it-Q4_K_M.gguf
-  mmproj-gemma-4-E2B-it-bf16.gguf
-  mtp-gemma-4-E2B-it.gguf
-  embeddinggemma-300M-Q8_0.gguf
-)
-for model in "${required_models[@]}"; do
-  [[ -f "$MODEL_DIR/$model" ]] || {
-    echo "Missing model: $MODEL_DIR/$model" >&2
-    echo "Place all four GGUF files in $MODEL_DIR and run install.sh again." >&2
-    exit 1
-  }
-  log "Found model filename: $model"
-done
+verify_models
 (
   cd "$INSTALL_DIR"
   sha256sum -c SHA256SUMS
@@ -250,13 +329,8 @@ PY
 LLAMA_CPU_IMAGE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["accelerator_images"]["cpu"])' "$INSTALL_DIR/release-manifest.json")"
 LLAMA_GPU_IMAGE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["accelerator_images"]["gpu"])' "$INSTALL_DIR/release-manifest.json")"
 if [[ "$ACCELERATOR" == "gpu" ]] && ! verify_gpu_container "$LLAMA_GPU_IMAGE"; then
-  if [[ "$ACCELERATOR_REQUESTED" == "auto" ]]; then
-    log "CUDA container validation failed; using the CPU profile"
-    ACCELERATOR=cpu
-  else
-    echo "CUDA container validation failed for $LLAMA_GPU_IMAGE." >&2
-    exit 1
-  fi
+  echo "CUDA container validation failed for $LLAMA_GPU_IMAGE." >&2
+  exit 1
 fi
 log "Required image tags are available for the $ACCELERATOR profile"
 
@@ -458,7 +532,7 @@ replacements = {
     "__SERVER_ADDRESS__": sys.argv[5],
     "HTTP_PORT=80": f"HTTP_PORT={sys.argv[6]}",
     "__HOST_GID__": sys.argv[7],
-    "APP_IMAGE=chatbot-bca:0.2.3": f"APP_IMAGE={sys.argv[8]}",
+    "APP_IMAGE=__APP_IMAGE__": f"APP_IMAGE={sys.argv[8]}",
     "LLAMA_API_KEY=__GENERATE__": f"LLAMA_API_KEY={sys.argv[9]}",
     "EMBEDDING_API_KEY=__GENERATE__": f"EMBEDDING_API_KEY={sys.argv[10]}",
     "POSTGRES_PASSWORD=__GENERATE__": f"POSTGRES_PASSWORD={sys.argv[11]}",

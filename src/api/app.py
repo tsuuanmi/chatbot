@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from src._version import __version__
 from src.api.middleware.error_handler import add_error_handling
 from src.api.v1 import router as v1_router
 from src.config.settings import get_settings
@@ -37,7 +36,6 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Chatbot BCA API",
         description="Offline Gemma forensic-genetics chatbot API",
-        version=__version__,
         lifespan=lifespan,
         docs_url="/docs" if settings.api_docs_enabled else None,
         redoc_url="/redoc" if settings.api_docs_enabled else None,

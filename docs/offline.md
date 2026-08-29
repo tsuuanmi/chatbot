@@ -2,15 +2,16 @@
 
 ## 1. Delivery model
 
-The final deliverable is two files created on an Internet-connected preparation
+The final deliverable is three files created on an Internet-connected preparation
 computer:
 
 ```text
 /home/superman/workspaces/chatbot_bca.zip   committed Git HEAD source and installer
 /home/superman/workspaces/images.zip    exported Docker runtime images
+/home/superman/workspaces/models.zip    the four GGUF model files with checksums
 ```
 
-Extract both ZIPs into the same parent directory. Together they create a normal
+Extract all three ZIPs into the same parent directory. Together they create a normal
 repository-like directory:
 
 ```text
@@ -23,6 +24,7 @@ chatbotbca/
 ├── data/                        packaged knowledge and configured figures
 ├── tests/                       source-level tests
 ├── images/runtime-images.tar    preloaded application and service images
+├── models/                       the four GGUF model files extracted from models.zip
 ├── docker-compose.offline.yml    CPU-safe base profile
 ├── docker-compose.offline.gpu.yml NVIDIA GPU override
 ├── release-manifest.json
@@ -32,11 +34,12 @@ chatbotbca/
 
 `chatbot_bca.zip` contains source read from the committed `git archive HEAD`, plus
 the generated release manifest, checksums, and root installer. `images.zip` contains
-only `chatbotbca/images/runtime-images.tar`. Both ZIPs exclude GGUF models, Git
-metadata, secrets, virtual environments, caches, runtime databases, and backups.
+only `chatbotbca/images/runtime-images.tar`. `models.zip` contains
+`chatbotbca/models/` with the four GGUF files and a `SHA256SUMS` file. All three
+ZIPs exclude Git metadata, secrets, virtual environments, caches, runtime databases,
+and backups.
 
-The operator manually places these four files in `chatbotbca/models/` after
-extraction:
+Extracting `models.zip` places these four files in `chatbotbca/models/`:
 
 ```text
 gemma-4-E2B-it-Q4_K_M.gguf
@@ -45,8 +48,8 @@ mtp-gemma-4-E2B-it.gguf
 embeddinggemma-300M-Q8_0.gguf
 ```
 
-The setup checks only that those filenames exist. Model downloading and validation
-are the operator's responsibility.
+The installer verifies the four filenames and their `SHA256SUMS` checksums. Model
+downloading is the operator's responsibility at preparation time.
 
 ## 2. Offline architecture
 
@@ -115,7 +118,7 @@ On the preparation computer:
 
 ```bash
 cd /home/superman/workspaces/chatbotbca
-make prepare VERSION=0.2.3
+make prepare
 ```
 
 The builder:
@@ -126,37 +129,37 @@ The builder:
 4. builds the Chatbot BCA application image from that committed source;
 5. exports all runtime images to `images/runtime-images.tar`;
 6. records the source commit and required image tags in `release-manifest.json`;
-7. creates `SHA256SUMS` for source/configuration files; the large Docker image
-   archive and separately copied GGUF models are intentionally not checksummed;
-8. creates and integrity-checks both ZIPs before publishing them, and removes the
-   first output if publishing the second fails.
+7. creates `SHA256SUMS` for source/configuration files and a separate
+   `models/SHA256SUMS` for the GGUF files; the large Docker image archive is
+   intentionally not checksummed;
+8. creates and integrity-checks all three ZIPs before publishing them, and removes
+   already-published outputs if publishing a later one fails.
 
-Commit and review every intended change before running `make prepare`. `VERSION` must
-match the project version in `pyproject.toml`. There is no dirty-tree override because
-`chatbot_bca.zip` must identify one exact Git commit.
-Remove both old outputs before rebuilding:
+Commit and review every intended change before running `make prepare`. There is no
+dirty-tree override because `chatbot_bca.zip` must identify one exact Git commit.
+Remove all three old outputs before rebuilding:
 
 ```bash
 rm -f /home/superman/workspaces/chatbot_bca.zip \
-      /home/superman/workspaces/images.zip
-make prepare VERSION=0.2.3
+      /home/superman/workspaces/images.zip \
+      /home/superman/workspaces/models.zip
+make prepare
 ```
-
-The model files are never added to either ZIP or `SHA256SUMS`.
 
 ## 5. Transfer and extract
 
-Use exFAT or ext4 media, not FAT32. Copy `chatbot_bca.zip`, `images.zip`, and the
-GGUF files separately.
+Use exFAT or ext4 media, not FAT32. Copy `chatbot_bca.zip`, `images.zip`, and
+`models.zip`.
 
-On the target, extract both ZIPs from the same parent directory so they merge into
-one `chatbotbca/` folder:
+On the target, extract all three ZIPs from the same parent directory so they merge
+into one `chatbotbca/` folder:
 
 ```bash
 mkdir -p /home/superman/workspaces
 cd /home/superman/workspaces
 unzip /media/$USER/<USB>/chatbot_bca.zip
 unzip /media/$USER/<USB>/images.zip
+unzip /media/$USER/<USB>/models.zip
 cd chatbotbca
 ```
 
@@ -166,7 +169,7 @@ The result should be:
 /home/superman/workspaces/chatbotbca
 ```
 
-Put the models in:
+The four GGUF model files and their `SHA256SUMS` are placed in:
 
 ```text
 /home/superman/workspaces/chatbotbca/models
@@ -187,14 +190,18 @@ Install from a local target terminal so the sudo prompt is visible:
 ```bash
 cd /home/superman/workspaces/chatbotbca
 chmod +x install.sh
-./install.sh                    # auto-select CPU or GPU
-# or: ACCELERATOR=cpu ./install.sh
-# or: ACCELERATOR=gpu ./install.sh
+./install.sh --gpu no             # CPU profile, no NVIDIA requirement
+# or: ./install.sh --gpu yes      # require a verified NVIDIA GPU profile
+# or: ./install.sh --gpu yes --mode online  # build/pull images instead of loading them
 ```
 
-`auto` uses GPU only after validating the NVIDIA host and loaded CUDA image; otherwise
-it installs CPU. The chosen `cpu` or `gpu` profile is written to `.env` and reused by
-all offline lifecycle commands. It is not re-detected after installation.
+`--gpu yes` requires and validates the NVIDIA host and loaded CUDA image; it fails
+instead of falling back to CPU. `--gpu no` installs CPU-only. `--mode` defaults to
+`offline`; `--mode online` builds and pulls images via `accelerator.sh online` instead
+of loading `images/runtime-images.tar`, and skips the offline firewall, client
+credential, and boot-marker hardening. The chosen `cpu` or `gpu` profile is written to
+`.env` and reused by all offline lifecycle commands. It is not re-detected after
+installation.
 
 Nginx binds to `0.0.0.0` on HTTP port 80 by default. Other computers connect directly
 to the target address printed by the installer, for example `http://192.168.1.50`.
@@ -204,14 +211,12 @@ screen and retained in `install.log`.
 Optional installation environment variables:
 
 ```bash
-SERVER_ADDRESS=192.168.1.50 ./install.sh  # choose an assigned local address
-LAN_CIDR=192.168.1.0/24 ./install.sh      # override the trusted interface subnet
-CLIENT_COUNT=3 ./install.sh               # generate client-01 through client-03
-HTTP_PORT=8080 ./install.sh               # use a non-default host port
-SSH_PORT=2222 ./install.sh                # preserve a non-default LAN SSH port
-BIND_ADDRESS=192.168.1.50 ./install.sh    # restrict Nginx to one interface
-ACCELERATOR=cpu ./install.sh               # force CPU with no NVIDIA requirement
-ACCELERATOR=gpu ./install.sh               # require a verified NVIDIA GPU profile
+SERVER_ADDRESS=192.168.1.50 ./install.sh --gpu no  # choose an assigned local address
+LAN_CIDR=192.168.1.0/24 ./install.sh --gpu no      # override the trusted interface subnet
+CLIENT_COUNT=3 ./install.sh --gpu no               # generate client-01 through client-03
+HTTP_PORT=8080 ./install.sh --gpu no               # use a non-default host port
+SSH_PORT=2222 ./install.sh --gpu no                # preserve a non-default LAN SSH port
+BIND_ADDRESS=192.168.1.50 ./install.sh --gpu no    # restrict Nginx to one interface
 ```
 
 `SERVER_ADDRESS` and a custom `BIND_ADDRESS` must be IPv4 addresses assigned to the
@@ -221,7 +226,7 @@ The installer performs these actions:
 
 1. validates required files, commands, architecture, and installation state;
 2. detects and validates the server address, interface, and trusted LAN CIDR;
-3. checks four model filenames, release checksums, free space, Docker, and the selected profile;
+3. checks four model filenames and their `models/SHA256SUMS` checksums, release checksums, free space, Docker, and the selected profile;
 4. loads images, confirms CPU and CUDA image tags, and validates CUDA container access only for GPU;
 5. force-removes containers identified by Chatbot BCA names or Compose labels and
    deletes their attached/orphaned volumes, while preserving unrelated Docker resources;
@@ -432,13 +437,14 @@ processed one at a time to avoid exhausting the 6 GB GPU.
 
 ### Installer says a model is missing
 
-Place the exact reported filename in:
+Extract `models.zip` so the exact reported filename lands in:
 
 ```text
 /home/superman/workspaces/chatbotbca/models
 ```
 
-The installer does not download or validate model contents.
+The installer verifies the four filenames and their `models/SHA256SUMS` checksums; it
+does not download models.
 
 ### Installer stops during a long first index
 
@@ -493,8 +499,8 @@ classifier warmup checks succeed.
 
 ### Missing image
 
-Offline startup intentionally fails rather than pulling. Rebuild both release ZIPs
-on the preparation computer and transfer `chatbot_bca.zip` and `images.zip` again.
+Offline startup intentionally fails rather than pulling. Rebuild all three release
+ZIPs on the preparation computer and transfer them again.
 
 ## 13. What the current Tailscale test proved
 
@@ -512,10 +518,9 @@ firewall, reboot, and backup/restore tests.
 
 With target WAN access disconnected:
 
-- extract both `chatbot_bca.zip` and `images.zip` under `/home/superman/workspaces`;
-- place the four model files in `chatbotbca/models/`;
+- extract `chatbot_bca.zip`, `images.zip`, and `models.zip` under `/home/superman/workspaces`;
 - reserve the target's LAN IPv4 address and confirm the installer selects its CIDR;
-- run `./install.sh` successfully and confirm five credential files are generated;
+- run `./install.sh --gpu yes` (or `--gpu no`) successfully and confirm five credential files are generated;
 - confirm legacy Chatbot BCA containers were removed, unrelated containers remain, and every new service is healthy;
 - confirm authenticated `/api/v1/ready` reports `ready`;
 - test prepared, generated, figure, streaming, and delete paths;

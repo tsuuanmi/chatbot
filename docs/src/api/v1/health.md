@@ -8,7 +8,7 @@ Exposes process liveness, dependency readiness, and authenticated model metadata
 
 - Serve unauthenticated liveness aliases at `/live` and `/health`.
 - Run the full readiness check at `/ready`, protect it with client authentication, and return HTTP 503 when not ready.
-- Serve an authenticated `/health/detailed` response with configured model names and API version.
+- Serve an authenticated `/health/detailed` response with configured model names.
 
 ## Non-responsibilities
 
@@ -18,7 +18,7 @@ No dependency warmup, readiness-check implementation, application-level `/api/v1
 
 - `liveness() -> dict[str, str]`: returns `{"status": "healthy"}` when the process can serve the request.
 - `readiness(response, client) -> dict`: returns aggregate status plus per-dependency checks and mutates the response status to 503 when needed.
-- `detailed_health_check(client) -> dict[str, str]`: returns static health status, configured LLM and embedding model names, and the application version from `src._version`.
+- `detailed_health_check(client) -> dict[str, str]`: returns static health status and configured LLM and embedding model names.
 - `router`: health-tagged `APIRouter`.
 
 ## Invariants and errors

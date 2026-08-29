@@ -4,7 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
 
-from src._version import __version__
 from src.api.auth import AuthenticatedClient, require_client
 from src.config.settings import get_settings
 from src.container import get_container
@@ -45,5 +44,4 @@ async def detailed_health_check(
         "status": "healthy",
         "llm_model": settings.llama_model_name,
         "embedding_model": settings.embedding_model_name,
-        "version": __version__,
     }

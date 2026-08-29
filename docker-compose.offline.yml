@@ -147,7 +147,7 @@ services:
     networks: [backend]
 
   indexer:
-    image: ${APP_IMAGE:-chatbot-bca:0.2.3}
+    image: ${APP_IMAGE:?Set APP_IMAGE}
     pull_policy: never
     group_add: ["${HOST_GID:?Set HOST_GID}"]
     command: ["python", "-m", "src.index_documents"]
@@ -167,7 +167,7 @@ services:
     networks: [backend]
 
   chatbot:
-    image: ${APP_IMAGE:-chatbot-bca:0.2.3}
+    image: ${APP_IMAGE:?Set APP_IMAGE}
     pull_policy: never
     group_add: ["${HOST_GID:?Set HOST_GID}"]
     environment: *chatbot-environment
