@@ -59,7 +59,7 @@ services:
       --ubatch-size ${LLAMA_UBATCH_SIZE:-512}
       --threads ${LLAMA_THREADS:-8}
       --threads-batch ${LLAMA_THREADS:-8}
-      --n-gpu-layers ${LLAMA_GPU_LAYERS:-16}
+      --n-gpu-layers ${LLAMA_GPU_LAYERS:-0}
       --n-gpu-layers-draft ${LLAMA_GPU_LAYERS_DRAFT:-0}
       --flash-attn on
       --jinja
@@ -96,7 +96,7 @@ services:
       --ubatch-size ${EMBEDDING_UBATCH_SIZE:-2048}
       --threads 8
       --threads-batch 8
-      --n-gpu-layers ${EMBEDDING_GPU_LAYERS:-99}
+      --n-gpu-layers ${EMBEDDING_GPU_LAYERS:-0}
     volumes:
       - ${MODEL_DIR:?Set MODEL_DIR}:/models:ro
     expose: ["8080"]

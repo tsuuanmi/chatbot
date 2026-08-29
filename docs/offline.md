@@ -93,7 +93,7 @@ Supported target profile:
 - `unzip`, `openssl`, `curl`, `python3`, `sha256sum`, `tar`, `ip`, `awk`, and `tee`;
 - for GPU mode only: NVIDIA GTX 1660 Super 6 GB or better, NVIDIA driver, NVIDIA
   Container Toolkit, and `nvidia-smi`;
-- a dedicated chatbot host: installation removes recognized legacy Chatbot BCA
+- a dedicated chatbot host: installation removes recognized legacy chatbot
   containers and their attached/orphaned Docker volumes for a fresh database; unrelated
   containers and volumes, Docker images, GGUF models, and source files are preserved;
 - a reserved/static LAN IPv4 address is recommended so client URLs remain stable.
@@ -126,7 +126,7 @@ The builder:
 1. refuses modified, deleted, staged, or untracked working-tree files;
 2. exports the exact committed source with `git archive HEAD`;
 3. pulls third-party images pinned by digest;
-4. builds the Chatbot BCA application image from that committed source;
+4. builds the Chatbot application image from that committed source;
 5. exports all runtime images to `images/runtime-images.tar`;
 6. records the source commit and required image tags in `release-manifest.json`;
 7. creates `SHA256SUMS` for source/configuration files and a separate
@@ -228,7 +228,7 @@ The installer performs these actions:
 2. detects and validates the server address, interface, and trusted LAN CIDR;
 3. checks four model filenames and their `models/SHA256SUMS` checksums, release checksums, free space, Docker, and the selected profile;
 4. loads images, confirms CPU and CUDA image tags, and validates CUDA container access only for GPU;
-5. force-removes containers identified by Chatbot BCA names or Compose labels and
+5. force-removes containers identified by legacy chatbot names or Compose labels and
    deletes their attached/orphaned volumes, while preserving unrelated Docker resources;
 6. for GPU only, requires successful NVIDIA total-memory and process queries, warns
    and continues when total residual use is below 1024 MiB, and stops at 1024 MiB or more;
@@ -468,7 +468,7 @@ substantial process safely, and rerun. A failed total-memory or process query al
 installation; the installer never kills host processes or silently assumes that
 measurement succeeded.
 
-Only containers identified by supported Chatbot BCA names or Compose labels are
+Only containers identified by supported legacy chatbot names or Compose labels are
 removed. Their Docker volumes are also deleted to prevent stale PostgreSQL credentials
 from breaking API startup. Unrelated containers and volumes continue unchanged; Docker
 images, GGUF models, and source files are preserved.
@@ -521,7 +521,7 @@ With target WAN access disconnected:
 - extract `chatbot_bca.zip`, `images.zip`, and `models.zip` under `/home/superman/workspaces`;
 - reserve the target's LAN IPv4 address and confirm the installer selects its CIDR;
 - run `./install.sh --gpu yes` (or `--gpu no`) successfully and confirm five credential files are generated;
-- confirm legacy Chatbot BCA containers were removed, unrelated containers remain, and every new service is healthy;
+- confirm legacy chatbot containers were removed, unrelated containers remain, and every new service is healthy;
 - confirm authenticated `/api/v1/ready` reports `ready`;
 - test prepared, generated, figure, streaming, and delete paths;
 - verify invalid keys return HTTP 401;

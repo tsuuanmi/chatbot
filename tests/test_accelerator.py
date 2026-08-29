@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 SCRIPT = ROOT / "scripts" / "accelerator.sh"
+OFFLINE_COMPOSE = ROOT / "docker-compose.offline.yml"
 
 
 def test_cpu_resolution_never_invokes_nvidia_tools(tmp_path: Path) -> None:
@@ -32,6 +33,13 @@ def test_cpu_resolution_never_invokes_nvidia_tools(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert result.stdout == "cpu\n"
     assert not marker.exists()
+
+
+def test_offline_cpu_profile_defaults_to_zero_offload() -> None:
+    compose = OFFLINE_COMPOSE.read_text(encoding="utf-8")
+
+    assert "--n-gpu-layers ${LLAMA_GPU_LAYERS:-0}" in compose
+    assert "--n-gpu-layers ${EMBEDDING_GPU_LAYERS:-0}" in compose
 
 
 def test_invalid_accelerator_is_rejected() -> None:

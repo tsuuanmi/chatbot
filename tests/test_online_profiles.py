@@ -49,6 +49,10 @@ def _prepare_fake_bin(tmp_path: Path) -> tuple[Path, Path, Path]:
         )
         if args[:1] == ["info"]:
             print('{{"nvidia": {{}}}}')
+        elif args[:1] == ["run"]:
+            if os.environ.get("MOCK_CUDA_UNAVAILABLE") == "1":
+                raise SystemExit(42)
+            print("  CUDA")
         elif args[:1] == ["compose"]:
             values = {{key: os.environ.get(key) for key in {ENV_VARS!r}}}
             Path({str(env_log)!r}).open("a", encoding="utf-8").write(
@@ -141,6 +145,23 @@ def test_online_gpu_profile_adds_gpu_override_and_does_not_force_offload(
         "LLAMA_GPU_LAYERS_DRAFT": None,
         "EMBEDDING_GPU_LAYERS": None,
     }
+
+
+def test_online_gpu_start_stops_before_compose_when_cuda_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    _, stderr, returncode = _run_profile(
+        tmp_path,
+        "gpu",
+        action="start",
+        extra_env={"MOCK_CUDA_UNAVAILABLE": "1"},
+    )
+
+    assert returncode != 0
+    assert "CUDA container validation failed for the GPU profile." in stderr
+    docker_log = (tmp_path / "docker.log").read_text(encoding="utf-8")
+    assert "docker run --rm --gpus all" in docker_log
+    assert " compose " not in docker_log
 
 
 def test_online_gpu_profile_passes_through_caller_offload_values(

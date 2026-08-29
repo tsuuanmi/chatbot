@@ -34,7 +34,7 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="Chatbot BCA API",
+        title="Chatbot API",
         description="Offline Gemma forensic-genetics chatbot API",
         lifespan=lifespan,
         docs_url="/docs" if settings.api_docs_enabled else None,

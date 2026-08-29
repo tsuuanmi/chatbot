@@ -83,6 +83,11 @@ async def test_malformed_api_key_configuration_is_service_unavailable(
     assert unavailable.value.status_code == 503
 
 
+def test_api_metadata_uses_standard_chatbot_name(client) -> None:
+    test_client, _ = client
+    assert test_client.app.title == "Chatbot API"
+
+
 def test_health(client) -> None:
     test_client, _ = client
     assert test_client.get("/api/v1/health").json() == {"status": "healthy"}

@@ -88,10 +88,10 @@ fi
 
 log "Allowing SSH port $SSH_PORT from $LAN_CIDR before enabling UFW"
 sudo ufw allow from "$LAN_CIDR" to any port "$SSH_PORT" proto tcp \
-  comment 'Chatbot BCA LAN SSH'
+  comment 'Chatbot LAN SSH'
 log "Allowing chatbot HTTP port $HTTP_PORT from $LAN_CIDR"
 sudo ufw allow from "$LAN_CIDR" to any port "$HTTP_PORT" proto tcp \
-  comment 'Chatbot BCA LAN HTTP'
+  comment 'Chatbot LAN HTTP'
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw --force enable
@@ -137,7 +137,7 @@ EOF
 
 cat > "$firewall_unit_tmp" <<'EOF'
 [Unit]
-Description=Chatbot BCA Docker LAN firewall
+Description=Chatbot Docker LAN firewall
 Requires=docker.service
 After=docker.service
 PartOf=docker.service

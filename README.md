@@ -1,4 +1,4 @@
-# Chatbot BCA
+# Chatbot
 
 Vietnamese forensic-genetics chatbot powered by Gemma-4-E2B, EmbeddingGemma,
 LangGraph, ChromaDB, and PostgreSQL. It supports prepared answers, approved RAG,
@@ -187,7 +187,7 @@ cd chatbotbca
 ```
 
 The installer detects the primary LAN IPv4 address and subnet, removes recognized
-legacy Chatbot BCA containers and volumes for a fresh database while preserving
+legacy chatbot containers and volumes for a fresh database while preserving
 unrelated Docker resources, images, and GGUF models, generates five client credentials,
 enables LAN-only UFW and Docker firewall rules, and enables Docker boot startup. Numbered
 progress is shown on screen and saved to `install.log`;

@@ -10,7 +10,7 @@ IMAGES_OUTPUT ?= /home/superman/workspaces/images.zip
 MODELS_OUTPUT ?= /home/superman/workspaces/models.zip
 
 help:
-	@echo "Chatbot BCA"
+	@echo "Chatbot"
 	@echo
 	@echo "  make setup                 Install locked development dependencies"
 	@echo "  make format                Format Python source and tests"

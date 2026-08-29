@@ -335,7 +335,7 @@ if [[ "$ACCELERATOR" == "gpu" ]] && ! verify_gpu_container "$LLAMA_GPU_IMAGE"; t
 fi
 log "Required image tags are available for the $ACCELERATOR profile"
 
-step "Remove pre-existing Chatbot BCA containers and volumes"
+step "Remove pre-existing chatbot containers and volumes"
 existing_container_output="$(docker ps -aq)"
 existing_containers=()
 chatbot_containers=()
@@ -379,16 +379,16 @@ for volume in "${existing_volumes[@]}"; do
 done
 
 if (( ${#chatbot_containers[@]} > 0 )); then
-  log "Force-removing ${#chatbot_containers[@]} legacy Chatbot BCA container(s)"
+  log "Force-removing ${#chatbot_containers[@]} legacy chatbot container(s)"
   docker rm -f "${chatbot_containers[@]}" >/dev/null
 else
-  log "No legacy Chatbot BCA containers matched the supported names or labels"
+  log "No legacy chatbot containers matched the supported names or labels"
 fi
 if (( ${#chatbot_volumes[@]} > 0 )); then
-  log "Removing ${#chatbot_volumes[@]} legacy Chatbot BCA Docker volume(s) for a fresh installation"
+  log "Removing ${#chatbot_volumes[@]} legacy chatbot Docker volume(s) for a fresh installation"
   docker volume rm "${chatbot_volumes[@]}" >/dev/null
 else
-  log "No legacy Chatbot BCA Docker volumes matched"
+  log "No legacy chatbot Docker volumes matched"
 fi
 rm -f "$INSTALL_DIR/config/.protected-volumes"
 

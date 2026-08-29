@@ -156,7 +156,7 @@ FastAPI lifespan:
 5. Serves requests only after warmup succeeds.
 6. Closes PostgreSQL, LLM, and embedding clients on shutdown.
 
-Offline installation removes recognized legacy Chatbot BCA containers and their
+Offline installation removes recognized legacy chatbot containers and their
 volumes for a fresh database, preserves unrelated Docker resources and all images/models,
 starts healthy backend services, runs the incremental figure indexer, configures
 persistent LAN firewall rules, then starts FastAPI and the HTTP gateway. Docker is
