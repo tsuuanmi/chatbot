@@ -226,7 +226,8 @@ if [[ "$MODE" == "offline" ]]; then
     && -f "$INSTALL_DIR/docker-compose.offline.gpu.yml" \
     && -f "$INSTALL_DIR/scripts/accelerator.sh" \
     && -f "$INSTALL_DIR/scripts/offline/configure_host.sh" \
-    && -f "$INSTALL_DIR/scripts/offline/detect_network.py" ]] || {
+    && -f "$INSTALL_DIR/scripts/offline/detect_network.py" \
+    && -f "$MODEL_DIR/SHA256SUMS" ]] || {
     echo "Required release files are missing or incomplete." >&2
     echo "Extract chatbot_bca.zip, images.zip, and models.zip into the same parent directory." >&2
     exit 1

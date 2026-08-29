@@ -731,3 +731,66 @@ def test_installer_aborts_if_docker_inventory_fails(tmp_path: Path) -> None:
     assert "docker ps -aq" in commands
     assert "docker rm -f" not in commands
     assert "docker update --restart=no" not in commands
+
+
+def test_installer_rejects_gpu_when_cuda_container_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    result, release, _, _ = _run_installer(tmp_path, gpu="yes", cuda_unavailable=True)
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert "CUDA container validation failed" in result.stdout
+
+
+def test_installer_online_mode_delegates_to_accelerator(tmp_path: Path) -> None:
+    release = _prepare_release(tmp_path)
+    for relative_path in (
+        "docker-compose.yml",
+        "docker-compose.gpu.yml",
+        ".env.example",
+    ):
+        shutil.copy2(ROOT / relative_path, release / relative_path)
+    # Replace accelerator.sh with a stub that records the delegated invocation and
+    # is a no-op when sourced (so install.sh's `source` defines nothing for --gpu no).
+    _write_executable(
+        release / "scripts/accelerator.sh",
+        r"""
+        #!/usr/bin/env bash
+        if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+          printf 'accelerator.sh %s\n' "$*" >> "$MOCK_COMMAND_LOG"
+          exit 0
+        fi
+        """,
+    )
+    fake_bin, command_log, _ = _prepare_fake_commands(tmp_path)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "MOCK_COMMAND_LOG": str(command_log),
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+        }
+    )
+    environment.pop("OFFLINE_ENV", None)
+    result = subprocess.run(
+        ["bash", "./install.sh", "--mode", "online", "--gpu", "no"],
+        cwd=release,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "STEP 4/4" in result.stdout
+    assert (release / ".env").is_file()
+    assert (release / ".env").read_text(encoding="utf-8") == (
+        release / ".env.example"
+    ).read_text(encoding="utf-8")
+    commands = command_log.read_text(encoding="utf-8")
+    assert "accelerator.sh online cpu start" in commands
+    # Online mode performs no offline hardening.
+    assert not (release / "config/.installed").exists()
+    assert not (release / "config/clients").exists()
+    assert "configure_host.sh" not in commands
+    assert "manage_client.sh" not in commands
