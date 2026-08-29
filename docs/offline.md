@@ -251,7 +251,7 @@ power loss leaves `.env` without the completion marker,
 reset and retry with:
 
 ```bash
-RESET_INCOMPLETE_INSTALL=YES ./install.sh
+RESET_INCOMPLETE_INSTALL=YES ./install.sh --gpu no
 ```
 
 ## 7. Generated secrets and client files

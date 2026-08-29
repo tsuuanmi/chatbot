@@ -70,7 +70,6 @@ chatbot_tmp="$(dirname "$CHATBOT_OUTPUT")/.chatbot_bca.$$.zip"
 images_tmp="$(dirname "$IMAGES_OUTPUT")/.images.$$.zip"
 models_tmp="$(dirname "$MODELS_OUTPUT")/.models.$$.zip"
 chatbot_published=false
-images_published=false
 models_published=false
 cleanup() {
   rm -rf "$stage_parent"
@@ -166,7 +165,6 @@ if ! mv "$images_tmp" "$IMAGES_OUTPUT"; then
   echo "Failed to publish all release ZIPs; removed partial output." >&2
   exit 1
 fi
-images_published=true
 if ! mv "$models_tmp" "$MODELS_OUTPUT"; then
   rm -f "$CHATBOT_OUTPUT" "$IMAGES_OUTPUT"
   echo "Failed to publish all release ZIPs; removed partial output." >&2
