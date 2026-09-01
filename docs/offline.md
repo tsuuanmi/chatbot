@@ -395,8 +395,9 @@ Ubuntu installation preserves existing UFW rules, allows the selected LAN to HTT
 sets default deny incoming/default allow outgoing, and enables UFW. RHEL installation
 removes generic SSH service and selected-port allowances from the selected firewalld zone,
 then replaces them with source-restricted rich rules. It does not reset firewalld or alter
-unrelated zones. RHEL requires SELinux `Enforcing`; the Compose `:z` and `:Z` bind-mount
-labels grant containers only the necessary access.
+unrelated zones. Its preflight rejects broad accepting rich rules for the selected SSH or
+HTTP ports. RHEL requires SELinux `Enforcing`; the Compose `:z` and `:Z` bind-mount labels
+grant containers only the necessary access.
 
 Because Docker can bypass host firewall input rules, `chatbot-bca-firewall.service`
 reapplies an idempotent `CHATBOT_BCA` chain under `DOCKER-USER` after Docker starts. The

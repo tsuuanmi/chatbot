@@ -389,6 +389,8 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
                 print("public")
             elif "--get-target" in args:
                 print("default")
+            elif "--list-rich-rules" in args:
+                print(os.environ.get("MOCK_BROAD_FIREWALL_RULE", ""))
         elif command == "systemctl" and "restart" in args:
             firewall = root / "usr/local/sbin/chatbot-bca-firewall"
             for _ in range(2):
@@ -431,6 +433,7 @@ def _run_installer(
     cuda_unavailable: bool = False,
     reset_incomplete: bool = False,
     platform: str = "ubuntu",
+    broad_firewall_rule: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
     release = _prepare_release(tmp_path)
     os_release = tmp_path / "os-release"
@@ -458,6 +461,7 @@ def _run_installer(
             "MOCK_GPU_PROCESSES": gpu_processes,
             "MOCK_GPU_QUERY_FAIL": "1" if gpu_query_fails else "0",
             "MOCK_NVIDIA_RUNTIME": "1" if nvidia_runtime else "0",
+            "MOCK_BROAD_FIREWALL_RULE": broad_firewall_rule,
             "MOCK_NVIDIA_HOST_FAIL": "1" if nvidia_host_fails else "0",
             "MOCK_CUDA_UNAVAILABLE": "1" if cuda_unavailable else "0",
             "MOCK_HOST_ROOT": str(mock_root),
@@ -620,6 +624,21 @@ def test_installer_configures_rhel_firewalld_without_ufw(tmp_path: Path) -> None
     )
     assert "FIREWALL_BACKEND=firewalld" in firewall_state
     assert "FIREWALL_ZONE=public" in firewall_state
+
+
+def test_installer_rejects_broad_rhel_firewalld_rule_before_cleanup(
+    tmp_path: Path,
+) -> None:
+    result, _, command_log, _ = _run_installer(
+        tmp_path,
+        gpu="no",
+        platform="rhel",
+        broad_firewall_rule='rule family="ipv4" port port="22" protocol="tcp" accept',
+    )
+
+    assert result.returncode != 0
+    assert "broad accepting rule for TCP port 22" in result.stdout
+    assert "docker rm -f" not in command_log.read_text(encoding="utf-8")
 
 
 def test_installer_rejects_under_capacity_gpu_before_cleanup(

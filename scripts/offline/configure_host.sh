@@ -93,6 +93,32 @@ firewalld_rule() {
     "$cidr" "$port"
 }
 
+assert_firewalld_port_restricted() {
+  local port rules
+  port="$1"
+  rules="$(sudo firewall-cmd --zone="$FIREWALL_ZONE" --list-rich-rules)"
+  FIREWALL_RULES="$rules" python3 - "$port" <<'PY'
+import ipaddress
+import os
+import re
+import sys
+
+port = sys.argv[1]
+for rule in os.environ["FIREWALL_RULES"].splitlines():
+    if f'port port="{port}" protocol="tcp"' not in rule or "accept" not in rule:
+        continue
+    source = re.search(r'source address="([^"]+)"', rule)
+    if source is None:
+        raise SystemExit(f"firewalld has a broad accepting rule for TCP port {port}")
+    try:
+        network = ipaddress.ip_network(source.group(1), strict=False)
+    except ValueError:
+        raise SystemExit(f"firewalld has an invalid source rule for TCP port {port}") from None
+    if network.prefixlen == 0:
+        raise SystemExit(f"firewalld has a broad accepting rule for TCP port {port}")
+PY
+}
+
 write_firewall_state() {
   local state_tmp
   state_tmp="$(mktemp)"
@@ -160,6 +186,8 @@ preflight_host_firewall() {
   if [[ "$FIREWALL_BACKEND" == "firewalld" ]]; then
     FIREWALL_ZONE="$(firewalld_zone)"
     sudo firewall-cmd --state >/dev/null
+    assert_firewalld_port_restricted "$SSH_PORT"
+    assert_firewalld_port_restricted "$HTTP_PORT"
   fi
 }
 
@@ -180,6 +208,8 @@ configure_firewalld() {
   local service port rule
   FIREWALL_ZONE="$(firewalld_zone)"
   sudo firewall-cmd --state >/dev/null
+  assert_firewalld_port_restricted "$SSH_PORT"
+  assert_firewalld_port_restricted "$HTTP_PORT"
   write_firewall_state
   for service in ssh; do
     sudo firewall-cmd --zone="$FIREWALL_ZONE" --remove-service="$service" >/dev/null 2>&1 || true
