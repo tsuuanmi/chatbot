@@ -51,6 +51,7 @@ def _prepare_release(tmp_path: Path) -> Path:
         "config/offline.env.template",
         "scripts/offline/common.sh",
         "scripts/offline/configure_host.sh",
+        "scripts/offline/host_platform.sh",
         "scripts/offline/detect_network.py",
         "scripts/offline/manage_client.sh",
     )
@@ -379,13 +380,18 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
                     destination.chmod(int(args[args.index("-m") + 1], 8))
         elif command == "iptables":
             raise SystemExit(subprocess.run(args, check=False).returncode)
+        elif command == "firewall-cmd":
+            if any(value.startswith("--get-zone-of-interface=") for value in args):
+                print("public")
+            elif "--get-default-zone" in args:
+                print("public")
         elif command == "systemctl" and "restart" in args:
             firewall = root / "usr/local/sbin/chatbot-bca-firewall"
             for _ in range(2):
                 subprocess.run([firewall], check=True)
         """,
     )
-    for command in ("systemctl", "ufw"):
+    for command in ("systemctl", "ufw", "firewall-cmd"):
         _write_executable(
             fake_bin / command,
             f"""
@@ -394,6 +400,13 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
             exit 0
             """,
         )
+    _write_executable(
+        fake_bin / "getenforce",
+        """
+        #!/usr/bin/env sh
+        printf 'Enforcing\n'
+        """,
+    )
     return fake_bin, command_log, mock_root
 
 
@@ -413,8 +426,16 @@ def _run_installer(
     nvidia_host_fails: bool = False,
     cuda_unavailable: bool = False,
     reset_incomplete: bool = False,
+    platform: str = "ubuntu",
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
     release = _prepare_release(tmp_path)
+    os_release = tmp_path / "os-release"
+    if platform == "ubuntu":
+        os_release.write_text("ID=ubuntu\nVERSION_ID=26.04\n", encoding="utf-8")
+    elif platform == "rhel":
+        os_release.write_text("ID=rhel\nVERSION_ID=8.10\n", encoding="utf-8")
+    else:
+        os_release.write_text("ID=unknown\nVERSION_ID=0\n", encoding="utf-8")
     if reset_incomplete:
         shutil.copy2(release / "config/offline.env.template", release / ".env")
     fake_bin, command_log, mock_root = _prepare_fake_commands(tmp_path)
@@ -437,6 +458,7 @@ def _run_installer(
             "MOCK_CUDA_UNAVAILABLE": "1" if cuda_unavailable else "0",
             "MOCK_HOST_ROOT": str(mock_root),
             "MOCK_IPTABLES_STATE": str(tmp_path / "iptables-state.json"),
+            "HOST_OS_RELEASE": str(os_release),
             "PATH": f"{fake_bin}:{environment['PATH']}",
             "RESET_INCOMPLETE_INSTALL": "YES" if reset_incomplete else "",
         }
@@ -571,6 +593,25 @@ def test_installer_uses_cpu_without_nvidia_support(tmp_path: Path) -> None:
     assert "--gpus all" not in commands
     assert "docker compose --project-name" in commands
     assert "docker-compose.offline.gpu.yml" not in commands
+
+
+def test_installer_configures_rhel_firewalld_without_ufw(tmp_path: Path) -> None:
+    result, release, command_log, mock_root = _run_installer(
+        tmp_path,
+        gpu="no",
+        platform="rhel",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    commands = command_log.read_text(encoding="utf-8")
+    assert "firewall-cmd --state" in commands
+    assert "--add-rich-rule" in commands
+    assert "ufw " not in commands
+    firewall_state = (mock_root / "etc/chatbot-bca/firewall.conf").read_text(
+        encoding="utf-8"
+    )
+    assert "FIREWALL_BACKEND=firewalld" in firewall_state
+    assert "FIREWALL_ZONE=public" in firewall_state
 
 
 def test_installer_rejects_under_capacity_gpu_before_cleanup(

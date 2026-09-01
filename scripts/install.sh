@@ -188,7 +188,16 @@ step "Validate installer arguments and prerequisites"
 if [[ "$MODE" == "online" ]]; then
   required_commands=(docker sha256sum)
 else
-  required_commands=(awk curl docker ip openssl python3 sha256sum sudo systemctl ufw iptables)
+  # shellcheck source=offline/host_platform.sh
+  source "$INSTALL_DIR/scripts/offline/host_platform.sh"
+  HOST_PLATFORM="$(host_platform)"
+  HOST_FIREWALL="$(host_firewall_backend "$HOST_PLATFORM")"
+  if [[ "$HOST_FIREWALL" == "firewalld" ]]; then
+    firewall_command=firewall-cmd
+  else
+    firewall_command="$HOST_FIREWALL"
+  fi
+  required_commands=(awk curl docker ip openssl python3 sha256sum sudo systemctl iptables "$firewall_command")
 fi
 for command in "${required_commands[@]}"; do
   command -v "$command" >/dev/null 2>&1 || {
@@ -197,6 +206,10 @@ for command in "${required_commands[@]}"; do
   }
 done
 docker compose version >/dev/null
+if [[ "$MODE" == "offline" ]]; then
+  validate_host_platform "$HOST_PLATFORM"
+  log "Supported target platform: $HOST_PLATFORM ($HOST_FIREWALL firewall backend)"
+fi
 [[ "$(uname -m)" == "x86_64" ]] || {
   echo "chatbot_bca.zip requires an x86_64 target computer." >&2
   exit 1
@@ -227,6 +240,7 @@ if [[ "$MODE" == "offline" ]]; then
     && -f "$INSTALL_DIR/docker-compose.offline.gpu.yml" \
     && -f "$INSTALL_DIR/scripts/accelerator.sh" \
     && -f "$INSTALL_DIR/scripts/offline/configure_host.sh" \
+    && -f "$INSTALL_DIR/scripts/offline/host_platform.sh" \
     && -f "$INSTALL_DIR/scripts/offline/detect_network.py" \
     && -f "$MODEL_DIR/SHA256SUMS" ]] || {
     echo "Required release files are missing or incomplete." >&2
@@ -617,7 +631,7 @@ run_indexer 3
 
 step "Configure persistent LAN firewall and Docker boot startup"
 "$INSTALL_DIR/scripts/offline/configure_host.sh" \
-  "$LAN_CIDR" "$SERVER_ADDRESS" "$HTTP_PORT" "$SSH_PORT"
+  "$LAN_CIDR" "$SERVER_ADDRESS" "$HTTP_PORT" "$SSH_PORT" "$NETWORK_INTERFACE"
 
 step "Start the chatbot API and Nginx gateway"
 if ! compose up -d --no-build --pull never chatbot proxy; then

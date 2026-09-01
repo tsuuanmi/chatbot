@@ -108,6 +108,9 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
     assert set(manifest["accelerator_images"].values()) <= set(manifest["images"])
     assert (extract / "chatbotbca" / "docker-compose.offline.gpu.yml").is_file()
     assert (extract / "chatbotbca" / "scripts" / "accelerator.sh").is_file()
+    assert (
+        extract / "chatbotbca" / "scripts" / "offline" / "host_platform.sh"
+    ).is_file()
     assert not (extract / "chatbotbca" / "models").exists()
     docker_log = log.read_text(encoding="utf-8")
     assert docker_log.count("docker pull ghcr.io/ggml-org/llama.cpp:") == 2

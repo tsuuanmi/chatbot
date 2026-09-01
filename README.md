@@ -176,6 +176,10 @@ installed in the application image inside `images.zip`. The image archive includ
 both pinned CPU and CUDA llama.cpp servers so one release can install on either host
 type.
 
+Supported offline targets are Ubuntu 26.04 LTS and Red Hat Enterprise Linux 8.10,
+both with Docker Engine and the Compose plugin; Podman is not supported. RHEL keeps
+SELinux Enforcing and uses firewalld.
+
 On the dedicated target computer, extract all three ZIPs into the same directory:
 
 ```bash
@@ -191,8 +195,9 @@ cd chatbotbca
 The installer detects the primary LAN IPv4 address and subnet, removes recognized
 legacy chatbot containers and volumes for a fresh database while preserving
 unrelated Docker resources, images, and GGUF models, generates five client credentials,
-enables LAN-only UFW and Docker firewall rules, and enables Docker boot startup. Numbered
-progress is shown on screen and saved to `install.log`;
+configures LAN-only host firewall rules (UFW on Ubuntu, firewalld on RHEL) and Docker
+port isolation, and enables Docker boot startup. Numbered progress is shown on screen and
+saved to `install.log`;
 figure descriptions report per-figure progress during the first index.
 
 Nginx listens on HTTP port 80 on all host IPv4 interfaces by default. Clients use

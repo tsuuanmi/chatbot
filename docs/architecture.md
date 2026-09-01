@@ -42,9 +42,10 @@ Internal model services require separate API keys. Offline FastAPI requires a ha
 client API key, scopes conversation storage by client owner, and is reachable only
 through Nginx. Installation creates five client identities by default. CORS is
 configured from `CORS_ORIGINS`; it is not used as access control. Offline HTTP traffic
-is unencrypted and is intended only for an isolated, trusted LAN. UFW and a persistent
-`DOCKER-USER` chain restrict published HTTP to the detected LAN. PostgreSQL, ChromaDB,
-FastAPI, and model ports are not published by the offline deployment.
+is unencrypted and is intended only for an isolated, trusted LAN. Ubuntu uses UFW and
+RHEL uses firewalld; both use a persistent `DOCKER-USER` chain to restrict published HTTP
+to the detected LAN. RHEL keeps SELinux Enforcing and labels Compose bind mounts. PostgreSQL,
+ChromaDB, FastAPI, and model ports are not published by the offline deployment.
 
 ## Primary Chat Flow
 

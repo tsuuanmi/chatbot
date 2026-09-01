@@ -83,14 +83,17 @@ its own `/app/.venv` with all locked runtime dependencies. Installation and
 
 ## 3. Target requirements
 
-Supported target profile:
+Supported target profiles:
 
-- Ubuntu 26.04 LTS x86_64;
+- Ubuntu 26.04 LTS x86_64 or Red Hat Enterprise Linux 8.10 x86_64;
 - Intel i7-9700K class CPU or better and 32 GB RAM;
 - at least 20 GB free SSD space plus backup space, subject to final dual-image archive measurement;
-- Docker Engine and Docker Compose plugin;
-- UFW, iptables, systemd, and sudo access for automatic host security/startup setup;
-- `unzip`, `openssl`, `curl`, `python3`, `sha256sum`, `tar`, `ip`, `awk`, and `tee`;
+- Docker Engine and Docker Compose plugin; Podman is not supported;
+- Ubuntu: UFW, iptables, systemd, and sudo access for automatic host security/startup setup;
+- RHEL: firewalld, iptables, systemd, SELinux tools, and sudo access. SELinux must remain
+  `Enforcing`; Compose applies the required labels to chatbot bind mounts;
+- `unzip`, `openssl`, `curl`, Python 3.9 or newer as `python3`, `sha256sum`, `tar`,
+  `ip`, `awk`, and `tee`;
 - for GPU mode only: NVIDIA GTX 1660 Super 6 GB or better, NVIDIA driver, NVIDIA
   Container Toolkit, and `nvidia-smi`;
 - a dedicated chatbot host: installation removes recognized legacy chatbot
@@ -103,6 +106,11 @@ Check before transfer:
 ```bash
 docker version
 docker compose version
+python3 -c 'import sys; assert sys.version_info >= (3, 9), sys.version'
+
+# RHEL 8.10 only
+getenforce
+firewall-cmd --state
 
 # GPU mode only
 nvidia-smi
@@ -238,7 +246,8 @@ The installer performs these actions:
    (five by default);
 9. starts and health-checks database, vector, and model services;
 10. indexes local knowledge and reports progress for every configured figure;
-11. enables LAN-only UFW rules and a persistent `DOCKER-USER` firewall service;
+11. enables LAN-only UFW rules on Ubuntu or permanent firewalld rules on RHEL, plus a
+    persistent `DOCKER-USER` firewall service;
 12. enables Docker at boot, starts Nginx/FastAPI, and calls authenticated readiness;
 13. verifies every long-running chatbot container uses `restart: unless-stopped`.
 
@@ -376,16 +385,27 @@ DHCP so client URLs remain valid. HTTP traffic, prompts, answers, and API keys a
 not encrypted; use this profile only on an isolated, trusted LAN. Do not configure
 Internet port forwarding.
 
-Installation preserves existing UFW rules, allows the selected LAN to HTTP and SSH,
-sets default deny incoming/default allow outgoing, and enables UFW. Because Docker can
-bypass ordinary UFW input rules, `chatbot-bca-firewall.service` reapplies an idempotent
-`CHATBOT_BCA` chain under `DOCKER-USER` after Docker starts. The chain matches both the
-configured original host HTTP port and Nginx's post-DNAT container port 80, so custom
-host ports remain restricted without affecting unrelated Docker mappings. Inspect both
-layers with:
+Ubuntu installation preserves existing UFW rules, allows the selected LAN to HTTP and SSH,
+sets default deny incoming/default allow outgoing, and enables UFW. RHEL installation
+adds only permanent, source-restricted rich rules to the selected firewalld zone; it does
+not reset firewalld or alter unrelated zones. RHEL requires SELinux `Enforcing`; the
+Compose `:z` and `:Z` bind-mount labels grant containers only the necessary access.
+
+Because Docker can bypass host firewall input rules, `chatbot-bca-firewall.service`
+reapplies an idempotent `CHATBOT_BCA` chain under `DOCKER-USER` after Docker starts. The
+chain matches both the configured original host HTTP port and Nginx's post-DNAT container
+port 80, so custom host ports remain restricted without affecting unrelated Docker
+mappings. Inspect the active host firewall, Docker chain, and boot unit with:
 
 ```bash
+# Ubuntu
 sudo ufw status verbose
+
+# RHEL
+getenforce
+sudo firewall-cmd --list-all-zones
+
+# Both targets
 sudo iptables -L CHATBOT_BCA -n --line-numbers
 sudo systemctl status chatbot-bca-firewall.service
 ```
@@ -458,7 +478,10 @@ Initial multimodal descriptions can take several minutes each on a 6 GB GPU.
 
 The installer prints chatbot and dependency logs before rollback. Legacy chatbot
 volumes are removed before configuration, preventing an old PostgreSQL volume and new
-password from being mixed. Correct the reported cause, then rerun in the same folder.
+password from being mixed. Correct the reported cause, then rerun in the same folder. On
+RHEL, keep SELinux
+`Enforcing`; inspect recent denials with `sudo ausearch -m AVC -ts recent` rather than
+disabling it.
 
 ### Residual GPU processes are reported
 
@@ -528,7 +551,8 @@ With target WAN access disconnected:
 - verify invalid keys return HTTP 401;
 - verify a second client cannot access the first client's conversation;
 - check VRAM during generated and figure requests;
-- verify UFW, `CHATBOT_BCA`, and `chatbot-bca-firewall.service` are active;
+- verify UFW on Ubuntu or firewalld plus SELinux `Enforcing` on RHEL, then verify
+  `CHATBOT_BCA` and `chatbot-bca-firewall.service` are active;
 - reboot without Internet and confirm the API becomes ready without a manual start command;
 - test backup and restore;
 - confirm untrusted networks and WAN cannot reach the configured host HTTP port.

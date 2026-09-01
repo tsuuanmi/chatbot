@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if (( $# != 4 )); then
-  echo "usage: $0 LAN_CIDR SERVER_ADDRESS HTTP_PORT SSH_PORT" >&2
+if (( $# != 5 )); then
+  echo "usage: $0 LAN_CIDR SERVER_ADDRESS HTTP_PORT SSH_PORT NETWORK_INTERFACE" >&2
   exit 2
 fi
 
@@ -10,15 +10,27 @@ LAN_CIDR="$1"
 SERVER_ADDRESS="$2"
 HTTP_PORT="$3"
 SSH_PORT="$4"
+NETWORK_INTERFACE="$5"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=host_platform.sh
+source "$SCRIPT_DIR/host_platform.sh"
+HOST_PLATFORM="$(host_platform)"
+FIREWALL_BACKEND="$(host_firewall_backend "$HOST_PLATFORM")"
 FIREWALL_PROGRAM="/usr/local/sbin/chatbot-bca-firewall"
 FIREWALL_UNIT="/etc/systemd/system/chatbot-bca-firewall.service"
 FIREWALL_STATE="/etc/chatbot-bca/firewall.conf"
+FIREWALL_ZONE=""
 
 log() {
   printf '[host %(%Y-%m-%dT%H:%M:%S%z)T] %s\n' -1 "$*"
 }
 
-for command in awk install iptables mktemp python3 sudo systemctl ufw; do
+if [[ "$FIREWALL_BACKEND" == "firewalld" ]]; then
+  firewall_command=firewall-cmd
+else
+  firewall_command="$FIREWALL_BACKEND"
+fi
+for command in awk install iptables mktemp python3 sudo systemctl "$firewall_command"; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "Required host-setup command not found: $command" >&2
     exit 1
@@ -53,6 +65,89 @@ for label, raw_port in (("HTTP", raw_http_port), ("SSH", raw_ssh_port)):
         raise SystemExit(f"invalid {label} port: {raw_port}") from None
 PY
 
+firewalld_zone() {
+  local zone
+  zone="$(sudo firewall-cmd --get-zone-of-interface="$NETWORK_INTERFACE" 2>/dev/null || true)"
+  if [[ -z "$zone" || "$zone" == "no zone" ]]; then
+    zone="$(sudo firewall-cmd --get-default-zone)"
+  fi
+  [[ "$zone" =~ ^[[:alnum:]_-]+$ ]] || {
+    echo "Could not determine the firewalld zone for $NETWORK_INTERFACE." >&2
+    return 1
+  }
+  printf '%s\n' "$zone"
+}
+
+firewalld_rule() {
+  local cidr="$1" port="$2"
+  printf 'rule family="ipv4" source address="%s" port port="%s" protocol="tcp" accept' \
+    "$cidr" "$port"
+}
+
+remove_previous_rules() {
+  local previous_state previous_backend previous_lan previous_http_port previous_ssh_port previous_zone
+  previous_state="$(sudo cat "$FIREWALL_STATE" 2>/dev/null || true)"
+  [[ -n "$previous_state" ]] || return 0
+  previous_backend="$(awk -F= '$1 == "FIREWALL_BACKEND" {print $2}' <<< "$previous_state")"
+  previous_backend="${previous_backend:-ufw}"
+  previous_lan="$(awk -F= '$1 == "LAN_CIDR" {print $2}' <<< "$previous_state")"
+  previous_http_port="$(awk -F= '$1 == "HTTP_PORT" {print $2}' <<< "$previous_state")"
+  previous_ssh_port="$(awk -F= '$1 == "SSH_PORT" {print $2}' <<< "$previous_state")"
+  previous_zone="$(awk -F= '$1 == "FIREWALL_ZONE" {print $2}' <<< "$previous_state")"
+  [[ -n "$previous_lan" && -n "$previous_http_port" ]] || return 0
+
+  case "$previous_backend" in
+    ufw)
+      log "Removing previous installer-owned UFW rules"
+      sudo ufw --force delete allow from "$previous_lan" to any \
+        port "$previous_http_port" proto tcp >/dev/null 2>&1 || true
+      if [[ -n "$previous_ssh_port" ]]; then
+        sudo ufw --force delete allow from "$previous_lan" to any \
+          port "$previous_ssh_port" proto tcp >/dev/null 2>&1 || true
+      fi
+      ;;
+    firewalld)
+      [[ -n "$previous_zone" ]] || return 0
+      log "Removing previous installer-owned firewalld rules"
+      sudo firewall-cmd --permanent --zone="$previous_zone" --remove-rich-rule \
+        "$(firewalld_rule "$previous_lan" "$previous_http_port")" >/dev/null 2>&1 || true
+      if [[ -n "$previous_ssh_port" ]]; then
+        sudo firewall-cmd --permanent --zone="$previous_zone" --remove-rich-rule \
+          "$(firewalld_rule "$previous_lan" "$previous_ssh_port")" >/dev/null 2>&1 || true
+      fi
+      sudo firewall-cmd --reload
+      ;;
+    *)
+      echo "Unsupported previous firewall backend: $previous_backend" >&2
+      return 1
+      ;;
+  esac
+}
+
+configure_ufw() {
+  log "Allowing SSH port $SSH_PORT from $LAN_CIDR before enabling UFW"
+  sudo ufw allow from "$LAN_CIDR" to any port "$SSH_PORT" proto tcp \
+    comment 'Chatbot LAN SSH'
+  log "Allowing chatbot HTTP port $HTTP_PORT from $LAN_CIDR"
+  sudo ufw allow from "$LAN_CIDR" to any port "$HTTP_PORT" proto tcp \
+    comment 'Chatbot LAN HTTP'
+  sudo ufw default deny incoming
+  sudo ufw default allow outgoing
+  sudo ufw --force enable
+}
+
+configure_firewalld() {
+  FIREWALL_ZONE="$(firewalld_zone)"
+  sudo firewall-cmd --state >/dev/null
+  log "Allowing SSH port $SSH_PORT from $LAN_CIDR in firewalld zone $FIREWALL_ZONE"
+  sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --add-rich-rule \
+    "$(firewalld_rule "$LAN_CIDR" "$SSH_PORT")"
+  log "Allowing chatbot HTTP port $HTTP_PORT from $LAN_CIDR in firewalld zone $FIREWALL_ZONE"
+  sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --add-rich-rule \
+    "$(firewalld_rule "$LAN_CIDR" "$HTTP_PORT")"
+  sudo firewall-cmd --reload
+}
+
 log "Requesting administrator access for firewall and boot configuration"
 sudo -v
 iptables_path="$(command -v iptables)"
@@ -69,32 +164,11 @@ else
   fi
 fi
 
-previous_state="$(sudo cat "$FIREWALL_STATE" 2>/dev/null || true)"
-if [[ -n "$previous_state" ]]; then
-  previous_lan="$(awk -F= '$1 == "LAN_CIDR" {print $2}' <<< "$previous_state")"
-  previous_http_port="$(awk -F= '$1 == "HTTP_PORT" {print $2}' <<< "$previous_state")"
-  previous_ssh_port="$(awk -F= '$1 == "SSH_PORT" {print $2}' <<< "$previous_state")"
-  if [[ -n "$previous_lan" && -n "$previous_http_port" ]]; then
-    log "Removing the previous installer-owned UFW HTTP rule"
-    sudo ufw --force delete allow from "$previous_lan" to any \
-      port "$previous_http_port" proto tcp >/dev/null 2>&1 || true
-  fi
-  if [[ -n "$previous_lan" && -n "$previous_ssh_port" ]]; then
-    log "Removing the previous installer-owned UFW SSH rule"
-    sudo ufw --force delete allow from "$previous_lan" to any \
-      port "$previous_ssh_port" proto tcp >/dev/null 2>&1 || true
-  fi
-fi
-
-log "Allowing SSH port $SSH_PORT from $LAN_CIDR before enabling UFW"
-sudo ufw allow from "$LAN_CIDR" to any port "$SSH_PORT" proto tcp \
-  comment 'Chatbot LAN SSH'
-log "Allowing chatbot HTTP port $HTTP_PORT from $LAN_CIDR"
-sudo ufw allow from "$LAN_CIDR" to any port "$HTTP_PORT" proto tcp \
-  comment 'Chatbot LAN HTTP'
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw --force enable
+remove_previous_rules
+case "$FIREWALL_BACKEND" in
+  ufw) configure_ufw ;;
+  firewalld) configure_firewalld ;;
+esac
 
 firewall_program_tmp="$(mktemp)"
 firewall_unit_tmp="$(mktemp)"
@@ -129,6 +203,8 @@ fi
 EOF
 
 cat > "$firewall_state_tmp" <<EOF
+FIREWALL_BACKEND=$FIREWALL_BACKEND
+FIREWALL_ZONE=$FIREWALL_ZONE
 LAN_CIDR=$LAN_CIDR
 SERVER_ADDRESS=$SERVER_ADDRESS
 HTTP_PORT=$HTTP_PORT
@@ -165,5 +241,8 @@ sudo systemctl is-enabled --quiet chatbot-bca-firewall.service
 sudo systemctl is-active --quiet chatbot-bca-firewall.service
 
 log "Host firewall is active for $SERVER_ADDRESS"
-sudo ufw status verbose
+case "$FIREWALL_BACKEND" in
+  ufw) sudo ufw status verbose ;;
+  firewalld) sudo firewall-cmd --zone="$FIREWALL_ZONE" --list-rich-rules ;;
+esac
 sudo "$iptables_path" -L CHATBOT_BCA -n --line-numbers
