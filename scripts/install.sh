@@ -24,7 +24,7 @@ installation_started=false
 installation_complete=false
 step_number=0
 current_step="initialization"
-total_steps=14
+total_steps=15
 readonly residual_gpu_limit_mb=1024
 readonly minimum_gpu_memory_mib=6144
 
@@ -371,6 +371,10 @@ if [[ "$ACCELERATOR" == "gpu" ]]; then
   fi
 fi
 log "Required image tags are available for the $ACCELERATOR profile"
+
+step "Preflight host firewall prerequisites"
+"$INSTALL_DIR/scripts/offline/configure_host.sh" --preflight \
+  "$LAN_CIDR" "$SERVER_ADDRESS" "$HTTP_PORT" "$SSH_PORT" "$NETWORK_INTERFACE"
 
 step "Remove pre-existing chatbot containers and volumes"
 existing_container_output="$(docker ps -aq)"

@@ -237,27 +237,33 @@ The installer performs these actions:
 2. detects and validates the server address, interface, and trusted LAN CIDR;
 3. checks four model filenames and their `models/SHA256SUMS` checksums, release checksums, free space, Docker, and the selected profile;
 4. loads images, confirms CPU and CUDA image tags, and validates CUDA container access and at least 6 GiB on every NVIDIA GPU before cleanup;
-5. force-removes containers identified by legacy chatbot names or Compose labels and
+5. preflights the selected host firewall backend, SELinux on RHEL, and conntrack support
+   before deleting legacy data;
+6. force-removes containers identified by legacy chatbot names or Compose labels and
    deletes their attached/orphaned volumes, while preserving unrelated Docker resources;
-6. for GPU only, requires successful NVIDIA total-memory and process queries, warns
+7. for GPU only, requires successful NVIDIA total-memory and process queries, warns
    and continues when total residual use is below 1024 MiB, and stops at 1024 MiB or more;
-7. validates that the selected HTTP bind address/port is available;
-8. creates `.env`, service passwords, persistent directories, and configured client keys
+8. validates that the selected HTTP bind address/port is available;
+9. creates `.env`, service passwords, persistent directories, and configured client keys
    (five by default);
-9. starts and health-checks database, vector, and model services;
-10. indexes local knowledge and reports progress for every configured figure;
-11. enables LAN-only UFW rules on Ubuntu or permanent firewalld rules on RHEL, plus a
+10. starts and health-checks database, vector, and model services;
+11. indexes local knowledge and reports progress for every configured figure;
+12. enables LAN-only UFW rules on Ubuntu or permanent firewalld rules on RHEL, plus a
     persistent `DOCKER-USER` firewall service;
-12. enables Docker at boot, starts Nginx/FastAPI, and calls authenticated readiness;
-13. verifies every long-running chatbot container uses `restart: unless-stopped`.
+13. enables Docker at boot, starts Nginx/FastAPI, and calls authenticated readiness;
+14. verifies every long-running chatbot container uses `restart: unless-stopped`.
 
 After successful setup, `install.sh` writes `config/.installed` and refuses to run
 again; use the lifecycle commands in section 9. A normal installation failure rolls
 back generated chatbot containers, project volumes, secrets, and configuration. Legacy
 chatbot containers and volumes are intentionally not restored, ensuring that a retry in
 the same folder starts with a fresh PostgreSQL database. Docker images and model files
-remain available, and fail-closed host firewall rules may remain active. If an abrupt
-power loss leaves `.env` without the completion marker,
+remain available, and fail-closed host firewall rules may remain active. The installer
+records its intended firewall state before changing host rules, so
+`RESET_INCOMPLETE_INSTALL=YES` reconciles those rules on retry. The Docker `DOCKER-USER`
+chain is verified only after backend containers start; if that final check fails, legacy
+chatbot data is still not restored. If an abrupt power loss leaves `.env` without the
+completion marker,
 reset and retry with:
 
 ```bash
@@ -387,9 +393,10 @@ Internet port forwarding.
 
 Ubuntu installation preserves existing UFW rules, allows the selected LAN to HTTP and SSH,
 sets default deny incoming/default allow outgoing, and enables UFW. RHEL installation
-adds only permanent, source-restricted rich rules to the selected firewalld zone; it does
-not reset firewalld or alter unrelated zones. RHEL requires SELinux `Enforcing`; the
-Compose `:z` and `:Z` bind-mount labels grant containers only the necessary access.
+removes generic SSH service and selected-port allowances from the selected firewalld zone,
+then replaces them with source-restricted rich rules. It does not reset firewalld or alter
+unrelated zones. RHEL requires SELinux `Enforcing`; the Compose `:z` and `:Z` bind-mount
+labels grant containers only the necessary access.
 
 Because Docker can bypass host firewall input rules, `chatbot-bca-firewall.service`
 reapplies an idempotent `CHATBOT_BCA` chain under `DOCKER-USER` after Docker starts. The

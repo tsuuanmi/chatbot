@@ -315,7 +315,9 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
         chain = args[1]
         changed = False
         status = 0
-        if action == "-S":
+        if action == "-m":
+            pass
+        elif action == "-S":
             status = 0 if chain in state else 1
         elif action == "-N":
             if chain in state:
@@ -385,6 +387,8 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
                 print("public")
             elif "--get-default-zone" in args:
                 print("public")
+            elif "--get-target" in args:
+                print("default")
         elif command == "systemctl" and "restart" in args:
             firewall = root / "usr/local/sbin/chatbot-bca-firewall"
             for _ in range(2):
@@ -570,7 +574,7 @@ def test_installer_completes_with_five_clients_and_host_automation(
     ]
     assert (release / "config/.installed").is_file()
     install_log = (release / "install.log").read_text(encoding="utf-8")
-    assert "STEP 14/14" in install_log
+    assert "STEP 15/15" in install_log
     assert "Generated 5 unique client credential file(s)" in install_log
 
 
@@ -606,6 +610,10 @@ def test_installer_configures_rhel_firewalld_without_ufw(tmp_path: Path) -> None
     commands = command_log.read_text(encoding="utf-8")
     assert "firewall-cmd --state" in commands
     assert "--add-rich-rule" in commands
+    assert "--remove-service=ssh" in commands
+    assert commands.index("iptables -m conntrack -h") < commands.index("docker rm -f")
+    assert commands.index("firewall-cmd --state") < commands.index("docker rm -f")
+    assert "--reload" not in commands
     assert "ufw " not in commands
     firewall_state = (mock_root / "etc/chatbot-bca/firewall.conf").read_text(
         encoding="utf-8"

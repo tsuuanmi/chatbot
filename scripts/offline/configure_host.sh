@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+PREFLIGHT=false
+if [[ "${1:-}" == "--preflight" ]]; then
+  PREFLIGHT=true
+  shift
+fi
 if (( $# != 5 )); then
-  echo "usage: $0 LAN_CIDR SERVER_ADDRESS HTTP_PORT SSH_PORT NETWORK_INTERFACE" >&2
+  echo "usage: $0 [--preflight] LAN_CIDR SERVER_ADDRESS HTTP_PORT SSH_PORT NETWORK_INTERFACE" >&2
   exit 2
 fi
 
@@ -75,6 +80,10 @@ firewalld_zone() {
     echo "Could not determine the firewalld zone for $NETWORK_INTERFACE." >&2
     return 1
   }
+  [[ "$(sudo firewall-cmd --zone="$zone" --get-target)" != "ACCEPT" ]] || {
+    echo "Refusing firewalld zone with an ACCEPT target: $zone" >&2
+    return 1
+  }
   printf '%s\n' "$zone"
 }
 
@@ -82,6 +91,22 @@ firewalld_rule() {
   local cidr="$1" port="$2"
   printf 'rule family="ipv4" source address="%s" port port="%s" protocol="tcp" accept' \
     "$cidr" "$port"
+}
+
+write_firewall_state() {
+  local state_tmp
+  state_tmp="$(mktemp)"
+  cat > "$state_tmp" <<EOF
+FIREWALL_BACKEND=$FIREWALL_BACKEND
+FIREWALL_ZONE=$FIREWALL_ZONE
+LAN_CIDR=$LAN_CIDR
+SERVER_ADDRESS=$SERVER_ADDRESS
+HTTP_PORT=$HTTP_PORT
+SSH_PORT=$SSH_PORT
+EOF
+  sudo install -o root -g root -m 0755 -d /etc/chatbot-bca
+  sudo install -o root -g root -m 0600 "$state_tmp" "$FIREWALL_STATE"
+  rm -f "$state_tmp"
 }
 
 remove_previous_rules() {
@@ -109,13 +134,16 @@ remove_previous_rules() {
     firewalld)
       [[ -n "$previous_zone" ]] || return 0
       log "Removing previous installer-owned firewalld rules"
+      sudo firewall-cmd --zone="$previous_zone" --remove-rich-rule \
+        "$(firewalld_rule "$previous_lan" "$previous_http_port")" >/dev/null 2>&1 || true
       sudo firewall-cmd --permanent --zone="$previous_zone" --remove-rich-rule \
         "$(firewalld_rule "$previous_lan" "$previous_http_port")" >/dev/null 2>&1 || true
       if [[ -n "$previous_ssh_port" ]]; then
+        sudo firewall-cmd --zone="$previous_zone" --remove-rich-rule \
+          "$(firewalld_rule "$previous_lan" "$previous_ssh_port")" >/dev/null 2>&1 || true
         sudo firewall-cmd --permanent --zone="$previous_zone" --remove-rich-rule \
           "$(firewalld_rule "$previous_lan" "$previous_ssh_port")" >/dev/null 2>&1 || true
       fi
-      sudo firewall-cmd --reload
       ;;
     *)
       echo "Unsupported previous firewall backend: $previous_backend" >&2
@@ -124,7 +152,19 @@ remove_previous_rules() {
   esac
 }
 
+preflight_host_firewall() {
+  log "Requesting administrator access for firewall and boot configuration"
+  sudo -v
+  iptables_path="$(command -v iptables)"
+  "$iptables_path" -m conntrack -h >/dev/null
+  if [[ "$FIREWALL_BACKEND" == "firewalld" ]]; then
+    FIREWALL_ZONE="$(firewalld_zone)"
+    sudo firewall-cmd --state >/dev/null
+  fi
+}
+
 configure_ufw() {
+  write_firewall_state
   log "Allowing SSH port $SSH_PORT from $LAN_CIDR before enabling UFW"
   sudo ufw allow from "$LAN_CIDR" to any port "$SSH_PORT" proto tcp \
     comment 'Chatbot LAN SSH'
@@ -137,21 +177,35 @@ configure_ufw() {
 }
 
 configure_firewalld() {
+  local service port rule
   FIREWALL_ZONE="$(firewalld_zone)"
   sudo firewall-cmd --state >/dev/null
-  log "Allowing SSH port $SSH_PORT from $LAN_CIDR in firewalld zone $FIREWALL_ZONE"
-  sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --add-rich-rule \
-    "$(firewalld_rule "$LAN_CIDR" "$SSH_PORT")"
-  log "Allowing chatbot HTTP port $HTTP_PORT from $LAN_CIDR in firewalld zone $FIREWALL_ZONE"
-  sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --add-rich-rule \
-    "$(firewalld_rule "$LAN_CIDR" "$HTTP_PORT")"
-  sudo firewall-cmd --reload
+  write_firewall_state
+  for service in ssh; do
+    sudo firewall-cmd --zone="$FIREWALL_ZONE" --remove-service="$service" >/dev/null 2>&1 || true
+    sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --remove-service="$service" >/dev/null 2>&1 || true
+  done
+  if [[ "$HTTP_PORT" == "80" ]]; then
+    sudo firewall-cmd --zone="$FIREWALL_ZONE" --remove-service=http >/dev/null 2>&1 || true
+    sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --remove-service=http >/dev/null 2>&1 || true
+  fi
+  for port in "$SSH_PORT" "$HTTP_PORT"; do
+    sudo firewall-cmd --zone="$FIREWALL_ZONE" --remove-port="${port}/tcp" >/dev/null 2>&1 || true
+    sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --remove-port="${port}/tcp" >/dev/null 2>&1 || true
+  done
+  for port in "$SSH_PORT" "$HTTP_PORT"; do
+    rule="$(firewalld_rule "$LAN_CIDR" "$port")"
+    sudo firewall-cmd --zone="$FIREWALL_ZONE" --add-rich-rule "$rule"
+    sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --add-rich-rule "$rule"
+  done
+  log "Restricted SSH port $SSH_PORT and chatbot HTTP port $HTTP_PORT to $LAN_CIDR in firewalld zone $FIREWALL_ZONE"
 }
 
-log "Requesting administrator access for firewall and boot configuration"
-sudo -v
-iptables_path="$(command -v iptables)"
-log "Preflighting the Docker DOCKER-USER chain and conntrack matcher"
+preflight_host_firewall
+if [[ "$PREFLIGHT" == true ]]; then
+  exit 0
+fi
+log "Preflighting the Docker DOCKER-USER chain"
 sudo "$iptables_path" -S DOCKER-USER >/dev/null
 if sudo "$iptables_path" -C DOCKER-USER -p tcp --dport 80 -m conntrack \
   --ctdir ORIGINAL --ctorigdstport "$HTTP_PORT" -j ACCEPT 2>/dev/null; then
@@ -172,9 +226,8 @@ esac
 
 firewall_program_tmp="$(mktemp)"
 firewall_unit_tmp="$(mktemp)"
-firewall_state_tmp="$(mktemp)"
 cleanup() {
-  rm -f "$firewall_program_tmp" "$firewall_unit_tmp" "$firewall_state_tmp"
+  rm -f "$firewall_program_tmp" "$firewall_unit_tmp"
 }
 trap cleanup EXIT
 
@@ -202,15 +255,6 @@ if ! "\$IPTABLES" -C DOCKER-USER -j "\$CHAIN" 2>/dev/null; then
 fi
 EOF
 
-cat > "$firewall_state_tmp" <<EOF
-FIREWALL_BACKEND=$FIREWALL_BACKEND
-FIREWALL_ZONE=$FIREWALL_ZONE
-LAN_CIDR=$LAN_CIDR
-SERVER_ADDRESS=$SERVER_ADDRESS
-HTTP_PORT=$HTTP_PORT
-SSH_PORT=$SSH_PORT
-EOF
-
 cat > "$firewall_unit_tmp" <<'EOF'
 [Unit]
 Description=Chatbot Docker LAN firewall
@@ -231,8 +275,6 @@ EOF
 log "Installing persistent DOCKER-USER firewall service"
 sudo install -o root -g root -m 0755 "$firewall_program_tmp" "$FIREWALL_PROGRAM"
 sudo install -o root -g root -m 0644 "$firewall_unit_tmp" "$FIREWALL_UNIT"
-sudo install -o root -g root -m 0755 -d /etc/chatbot-bca
-sudo install -o root -g root -m 0600 "$firewall_state_tmp" "$FIREWALL_STATE"
 sudo systemctl enable docker.service
 sudo systemctl daemon-reload
 sudo systemctl enable chatbot-bca-firewall.service
