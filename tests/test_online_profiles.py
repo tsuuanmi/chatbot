@@ -10,7 +10,9 @@ the online *execution* path without a live Docker daemon or GPU hardware.
 from __future__ import annotations
 
 import ast
+import json
 import os
+import shutil
 import subprocess
 import textwrap
 from pathlib import Path
@@ -105,6 +107,71 @@ def _run_profile(
         check=False,
     )
     return result.stdout, result.stderr, result.returncode
+
+
+def test_relocated_online_compose_preserves_root_relative_paths(tmp_path: Path) -> None:
+    if shutil.which("docker") is None:
+        pytest.skip("Docker Compose is unavailable")
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "--project-directory",
+                str(ROOT),
+                "--env-file",
+                str(ROOT / ".env.example"),
+                "-f",
+                str(ROOT / "compose" / "docker-compose.yml"),
+                "config",
+                "--format",
+                "json",
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as error:
+        pytest.skip(f"Docker Compose is unavailable: {error.stderr}")
+
+    services = json.loads(result.stdout)["services"]
+    assert services["chatbot"]["build"]["context"] == str(ROOT)
+    assert services["llama-server"]["volumes"][0]["source"] == str(ROOT / "models")
+    assert services["chromadb"]["volumes"][0]["source"] == str(
+        ROOT / "databases" / "chromadb"
+    )
+
+
+def test_online_selector_works_without_root_env_file(tmp_path: Path) -> None:
+    fake_bin, docker_log, env_log = _prepare_fake_bin(tmp_path)
+    root_without_env = tmp_path / "project"
+    root_without_env.mkdir()
+    environment = os.environ | {
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "MOCK_DOCKER_LOG": str(docker_log),
+        "MOCK_ENV_LOG": str(env_log),
+    }
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; ACCELERATOR_ROOT="$2"; run_online_compose cpu status',
+            "bash",
+            str(SCRIPT),
+            str(root_without_env),
+        ],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    docker_log_text = docker_log.read_text(encoding="utf-8")
+    assert f"--project-directory {root_without_env}" in docker_log_text
+    assert "--env-file" not in docker_log_text
 
 
 def test_online_cpu_profile_forces_zero_offload_and_omits_gpu_override(

@@ -106,10 +106,15 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
         "gpu": "chatbot-bca/llama.cpp-server-cuda:b2497f8834f5",
     }
     assert set(manifest["accelerator_images"].values()) <= set(manifest["images"])
-    assert (
-        extract / "chatbotbca" / "compose" / "docker-compose.offline.gpu.yml"
-    ).is_file()
-    assert not (extract / "chatbotbca" / "docker-compose.offline.gpu.yml").exists()
+    compose_dir = extract / "chatbotbca" / "compose"
+    for name in (
+        "docker-compose.yml",
+        "docker-compose.gpu.yml",
+        "docker-compose.offline.yml",
+        "docker-compose.offline.gpu.yml",
+    ):
+        assert (compose_dir / name).is_file()
+        assert not (extract / "chatbotbca" / name).exists()
     assert (extract / "chatbotbca" / "scripts" / "accelerator.sh").is_file()
     assert (
         extract / "chatbotbca" / "scripts" / "offline" / "host_platform.sh"
