@@ -1,5 +1,15 @@
 # Python Source Layout
 
+## Deployment definitions
+
+All four authoritative Docker Compose definitions live under `compose/`. Lifecycle
+scripts select the online/offline base definition and optional GPU overlay explicitly
+with `docker compose --project-directory <repository-root> -f compose/...`; they never
+copy or generate a selected Compose file at the repository root. Use Make targets or
+those scripts rather than bare Docker Compose discovery.
+
+## Python manuals
+
 Every `src/**/*.py` file has an exact same-path Markdown manual under `docs/src/`.
 For example, `src/api/v1/chat.py` maps to `docs/src/api/v1/chat.md`, and
 `src/api/__init__.py` maps to `docs/src/api/__init__.md`.

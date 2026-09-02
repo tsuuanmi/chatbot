@@ -107,9 +107,12 @@ make check
 make clean
 ```
 
-`make check` runs Ruff, mypy, compile checks, and isolated tests. Live integration
-and performance suites remain explicit pytest operations because they require a
-running stack:
+`make check` runs Ruff, mypy, compile checks, and isolated tests. Compose definitions
+are maintained only under `compose/`; use the Make targets or deployment scripts, which
+select the required base/CPU/GPU files with an explicit repository project directory.
+Do not use bare `docker compose` discovery or copy a selected Compose file to the
+repository root. Live integration and performance suites remain explicit pytest
+operations because they require a running stack:
 
 ```bash
 .venv/bin/pytest -q -s -rA -m "integration and not performance"

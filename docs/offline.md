@@ -36,7 +36,10 @@ chatbotbca/
 ```
 
 `chatbot_bca.zip` contains source read from the committed `git archive HEAD`, plus
-the generated release manifest, checksums, and root installer. `images.zip` contains
+the generated release manifest, checksums, and root installer. The `compose/`
+directory is the only authoritative location for Compose definitions; the installer
+and lifecycle scripts select the needed base and optional GPU overlay directly, without
+copying or generating a root Compose file. `images.zip` contains
 only `chatbotbca/images/runtime-images.tar`. `models.zip` contains
 `chatbotbca/models/` with the four GGUF files and a `SHA256SUMS` file. All three
 ZIPs exclude Git metadata, secrets, virtual environments, caches, runtime databases,

@@ -5,7 +5,7 @@
 - [`architecture.md`](architecture.md): deployment boundaries, answer cascade, data flow, and security model.
 - [`api.md`](api.md): HTTP, authentication, response, error, and SSE contracts.
 - [`offline.md`](offline.md): preparation, transfer, installation, LAN clients, operations, backup, and troubleshooting.
-- [`source-layout.md`](source-layout.md): implemented Python package ownership and documentation mirror rule.
+- [`source-layout.md`](source-layout.md): implemented Python package ownership, Compose layout, and documentation mirror rule.
 
 ## Source manuals
 

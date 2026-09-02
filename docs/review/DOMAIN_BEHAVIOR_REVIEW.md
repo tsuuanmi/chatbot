@@ -28,11 +28,11 @@ The classifier should be fast enough for CPU operation, version-pinned, determin
 Vietnamese dataset, and fail closed on timeout, malformed output, or unavailable
 service.
 
-## 2. Why the Current Rule Gate Is Insufficient
+## 2. Historical Rule-Gate Limitation — Resolved
 
-`src/workflow/routing.py` currently recognizes complete Unicode terms, which fixes
-raw-substring errors and is cheap and deterministic. However, the allowlist contains
-broad terms including:
+Before the semantic-classifier cutover, the router recognized complete Unicode terms.
+That avoided raw-substring errors and was cheap and deterministic, but its allowlist
+contained broad terms including:
 
 - `technology`, `công nghệ`, `software`, `phần mềm`;
 - `AI`, `machine learning`;
@@ -40,9 +40,9 @@ broad terms including:
 - generic figure/image/chart signals;
 - any request carrying an image.
 
-Verified false accepts:
+The pre-cutover rule gate produced these false accepts:
 
-| Query | Current result | Required result |
+| Query | Historical result | Required result |
 |---|---|---|
 | `Cách dùng AI để nấu ăn?` | accepted | `OUT_OF_DOMAIN` |
 | `Phân tích dữ liệu bóng đá` | accepted | `OUT_OF_DOMAIN` |
@@ -51,9 +51,10 @@ Verified false accepts:
 | `AI hỗ trợ phân tích STR như thế nào?` | accepted | `IN_DOMAIN` |
 | `Quy trình kiểm soát nhiễm trong xét nghiệm ADN` | accepted | `IN_DOMAIN` |
 
-An expanding keyword list will become brittle: attackers can add an allowed word to
-an unrelated prompt, while legitimate specialist questions may omit every exact
-term. Semantic classification addresses intent rather than term presence.
+An expanding keyword list was brittle: attackers could add an allowed word to an
+unrelated prompt, while legitimate specialist questions could omit every exact term.
+EmbeddingGemma-300M semantic classification now addresses intent rather than term
+presence.
 
 ## 3. Why Binary Yes/No Is Not Enough
 
@@ -164,9 +165,8 @@ High-risk handling:
 
 ## 7. Model Selection and Runtime
 
-Evaluate, do not assume, the best lightweight classifier. Candidate families may
-include a multilingual/Vietnamese encoder with a small classification head or a small
-instruction model with grammar-constrained enum output. Selection criteria:
+EmbeddingGemma-300M is the selected local semantic classifier. The selection criteria
+for any future replacement remain:
 
 | Criterion | Requirement |
 |---|---|
@@ -198,7 +198,7 @@ substantive question.
 
 ## 9. Evaluation Dataset
 
-Create a versioned, reviewed Vietnamese dataset before production cutover:
+Maintain the versioned Vietnamese evaluation dataset used for production cutover with:
 
 - clear in-domain educational questions;
 - specialist terms omitted or misspelled;
@@ -218,18 +218,17 @@ Minimum release metrics should be set by stakeholders. Recommended focus:
 - publish confusion matrix and p50/p95 latency;
 - maintain a locked regression set not used for model tuning.
 
-## 10. Rollout Without Permanent Dual Routing
+## 10. Completed Rollout Without Permanent Dual Routing
 
-1. Build classifier service/module and typed client boundary.
-2. Create and approve the labeled dataset.
-3. Run offline evaluation.
-4. Run the model in shadow mode: regex remains authoritative; model decisions and
-   latency are compared without changing responses or loading additional full history.
-5. Review disagreements and update labels/model—not production keyword exceptions.
-6. Cut over the semantic classifier as the single production authority.
-7. Remove production domain allowlist logic and its obsolete tests.
+1. Built the classifier service and typed client boundary.
+2. Created the versioned labeled evaluation dataset.
+3. Ran offline evaluation and live correctness checks.
+4. Reviewed disagreements by updating exemplars and labels, not production keyword
+   exceptions.
+5. Cut over EmbeddingGemma-300M as the single production authority.
+6. Removed production domain-allowlist logic and obsolete tests.
 
-Shadow mode is temporary rollout instrumentation, not a compatibility architecture.
+Shadow mode was temporary rollout instrumentation, not a compatibility architecture.
 
 ## 11. Implemented Files
 
@@ -237,7 +236,6 @@ Shadow mode is temporary rollout instrumentation, not a compatibility architectu
 |---|---|
 | `src/domain/models.py` | Typed labels, risk and reason codes |
 | `src/domain/classifier.py` | Classifier interface and validated output boundary |
-| `src/domain/<backend>.py` | One selected local inference implementation |
 | `src/workflow/nodes.py` | Invoke classifier and route validated result |
 | `src/workflow/edges.py` | `reject` / `clarify` / `continue` edges |
 | `src/models/state.py` | Domain decision and risk state |
@@ -248,4 +246,4 @@ Shadow mode is temporary rollout instrumentation, not a compatibility architectu
 | `tests/test_integration.py` | Live strict-domain and failure behavior |
 | `tests/test_performance.py` | p50/p95 classifier overhead |
 
-Do not retain the current term matcher as a permanent fallback after cutover.
+No production term matcher is retained after cutover.

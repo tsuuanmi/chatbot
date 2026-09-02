@@ -2,9 +2,12 @@
 
 ## Deployment Boundary
 
-The system has separate development and offline-production Compose paths. Development
-publishes FastAPI on loopback port 8080 by default. Offline production publishes only
-an API-key-authenticated HTTP Nginx gateway on the target's trusted LAN interfaces;
+The system has separate development and offline-production Compose paths. The four
+Compose definitions are kept only in `compose/`; lifecycle scripts explicitly select
+the base definition and optional GPU overlay with the repository root as the Compose
+project directory. Development publishes FastAPI on loopback port 8080 by default.
+Offline production publishes only an API-key-authenticated HTTP Nginx gateway on the
+target's trusted LAN interfaces;
 all application and data services use an internal Docker network without an external
 route.
 
