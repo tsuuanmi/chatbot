@@ -23,8 +23,8 @@ dependencies = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "integration: integration tests against live docker compose services (requires: docker compose up -d)",
-    "performance: performance benchmarks against live docker compose services (requires: docker compose up -d)",
+    "integration: integration tests against live services (requires: make start)",
+    "performance: performance benchmarks against live services (requires: make start)",
 ]
 # chromadb telemetry uses a deprecated asyncio API that is slated for removal in
 # Python 3.16; it is third-party code we cannot change, so silence it here.

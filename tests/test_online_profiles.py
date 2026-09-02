@@ -114,9 +114,10 @@ def test_online_cpu_profile_forces_zero_offload_and_omits_gpu_override(
 
     assert returncode == 0, stderr or stdout
     docker_log = (tmp_path / "docker.log").read_text(encoding="utf-8")
-    assert "compose -f" in docker_log
-    assert "docker-compose.yml" in docker_log
-    assert "docker-compose.gpu.yml" not in docker_log
+    assert f"--project-directory {ROOT}" in docker_log
+    assert f"--env-file {ROOT / '.env'}" in docker_log
+    assert str(ROOT / "compose" / "docker-compose.yml") in docker_log
+    assert str(ROOT / "compose" / "docker-compose.gpu.yml") not in docker_log
     env_log = (tmp_path / "env.log").read_text(encoding="utf-8")
     assert env_log.count("{") == 1, "expected exactly one compose invocation"
     values = ast.literal_eval(env_log.strip())
@@ -134,9 +135,10 @@ def test_online_gpu_profile_adds_gpu_override_and_does_not_force_offload(
 
     assert returncode == 0, stderr or stdout
     docker_log = (tmp_path / "docker.log").read_text(encoding="utf-8")
-    assert "compose -f" in docker_log
-    assert "docker-compose.yml" in docker_log
-    assert "docker-compose.gpu.yml" in docker_log
+    assert f"--project-directory {ROOT}" in docker_log
+    assert f"--env-file {ROOT / '.env'}" in docker_log
+    assert str(ROOT / "compose" / "docker-compose.yml") in docker_log
+    assert str(ROOT / "compose" / "docker-compose.gpu.yml") in docker_log
     env_log = (tmp_path / "env.log").read_text(encoding="utf-8")
     assert env_log.count("{") == 1, "expected exactly one compose invocation"
     values = ast.literal_eval(env_log.strip())
@@ -177,7 +179,7 @@ def test_online_auto_profile_falls_back_to_cpu_when_cuda_is_unavailable(
     assert returncode == 0
     assert "NVIDIA GPU container validation failed; using the CPU profile." in stderr
     docker_log = (tmp_path / "docker.log").read_text(encoding="utf-8")
-    assert "docker-compose.gpu.yml" not in docker_log
+    assert str(ROOT / "compose" / "docker-compose.gpu.yml") not in docker_log
     values = [
         ast.literal_eval(line)
         for line in (tmp_path / "env.log").read_text(encoding="utf-8").splitlines()

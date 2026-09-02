@@ -25,8 +25,11 @@ chatbotbca/
 ├── tests/                       source-level tests
 ├── images/runtime-images.tar    preloaded application and service images
 ├── models/                       the four GGUF model files extracted from models.zip
-├── docker-compose.offline.yml    CPU-safe base profile
-├── docker-compose.offline.gpu.yml NVIDIA GPU override
+├── compose/                       Authoritative Compose definitions
+│   ├── docker-compose.yml         online base profile
+│   ├── docker-compose.gpu.yml     online GPU override
+│   ├── docker-compose.offline.yml CPU-safe base profile
+│   └── docker-compose.offline.gpu.yml offline GPU override
 ├── release-manifest.json
 ├── SHA256SUMS
 └── install.sh                   generated one-command target entry point

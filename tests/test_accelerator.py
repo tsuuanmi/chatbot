@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 SCRIPT = ROOT / "scripts" / "accelerator.sh"
-OFFLINE_COMPOSE = ROOT / "docker-compose.offline.yml"
+OFFLINE_COMPOSE = ROOT / "compose" / "docker-compose.offline.yml"
 
 
 def test_cpu_resolution_never_invokes_nvidia_tools(tmp_path: Path) -> None:

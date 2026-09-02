@@ -106,8 +106,10 @@ def test_offline_host_requires_python_39_or_newer(tmp_path: Path) -> None:
 
 
 def test_compose_files_label_rhel_bind_mounts() -> None:
-    offline = (ROOT / "docker-compose.offline.yml").read_text(encoding="utf-8")
-    online = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    offline = (ROOT / "compose" / "docker-compose.offline.yml").read_text(
+        encoding="utf-8"
+    )
+    online = (ROOT / "compose" / "docker-compose.yml").read_text(encoding="utf-8")
 
     assert "${MODEL_DIR:?Set MODEL_DIR}:/models:ro,z" in offline
     assert "${RUNTIME_DIR:?Set RUNTIME_DIR}/chromadb:/data:Z" in offline

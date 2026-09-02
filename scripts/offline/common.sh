@@ -3,8 +3,8 @@ set -Eeuo pipefail
 
 OFFLINE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OFFLINE_ENV="${OFFLINE_ENV:-$OFFLINE_ROOT/.env}"
-OFFLINE_COMPOSE="$OFFLINE_ROOT/docker-compose.offline.yml"
-OFFLINE_GPU_COMPOSE="$OFFLINE_ROOT/docker-compose.offline.gpu.yml"
+OFFLINE_COMPOSE="$OFFLINE_ROOT/compose/docker-compose.offline.yml"
+OFFLINE_GPU_COMPOSE="$OFFLINE_ROOT/compose/docker-compose.offline.gpu.yml"
 # shellcheck source=../accelerator.sh
 source "$OFFLINE_ROOT/scripts/accelerator.sh"
 project_digest="$(printf '%s' "$OFFLINE_ROOT" | sha256sum)"
@@ -43,8 +43,9 @@ compose() {
   local accelerator
   accelerator="$(offline_accelerator)"
   accelerator_compose_files "$accelerator" "$OFFLINE_COMPOSE" "$OFFLINE_GPU_COMPOSE"
-  docker compose --project-name "$OFFLINE_PROJECT_NAME" \
-    --env-file "$OFFLINE_ENV" "${ACCELERATOR_COMPOSE_FILES[@]}" "$@"
+  docker compose --project-directory "$OFFLINE_ROOT" \
+    --project-name "$OFFLINE_PROJECT_NAME" --env-file "$OFFLINE_ENV" \
+    "${ACCELERATOR_COMPOSE_FILES[@]}" "$@"
 }
 
 run_indexer() {

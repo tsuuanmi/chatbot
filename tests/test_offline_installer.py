@@ -41,12 +41,13 @@ def _prepare_release(tmp_path: Path) -> Path:
         release / "images",
         release / "models",
         release / "scripts/offline",
+        release / "compose",
     ):
         directory.mkdir(parents=True)
 
     source_files = (
-        "docker-compose.offline.yml",
-        "docker-compose.offline.gpu.yml",
+        "compose/docker-compose.offline.yml",
+        "compose/docker-compose.offline.gpu.yml",
         "scripts/accelerator.sh",
         "config/offline.env.template",
         "scripts/offline/common.sh",
@@ -95,7 +96,7 @@ def _prepare_release(tmp_path: Path) -> Path:
 
     checksum_paths = [
         release / "install.sh",
-        release / "docker-compose.offline.yml",
+        release / "compose/docker-compose.offline.yml",
         release / "release-manifest.json",
         *(release / relative_path for relative_path in source_files[1:]),
     ]
@@ -527,7 +528,8 @@ def test_installer_completes_with_five_clients_and_host_automation(
     assert "generic-project-volume" not in volume_removal_line
     assert "unrelated-volume" not in volume_removal_line
     assert commands.count("docker load -i ") == 1
-    assert "docker-compose.offline.gpu.yml" in commands
+    assert f"--project-directory {release}" in commands
+    assert "compose/docker-compose.offline.gpu.yml" in commands
     assert "docker update --restart=no" not in commands
     assert "ufw allow from 192.168.50.0/24 to any port 18080" in commands
     assert "systemctl enable docker.service" in commands
@@ -599,8 +601,9 @@ def test_installer_uses_cpu_without_nvidia_support(tmp_path: Path) -> None:
     commands = command_log.read_text(encoding="utf-8")
     assert "nvidia-smi" not in commands
     assert "--gpus all" not in commands
-    assert "docker compose --project-name" in commands
-    assert "docker-compose.offline.gpu.yml" not in commands
+    assert f"--project-directory {release}" in commands
+    assert "docker compose --project-directory" in commands
+    assert "compose/docker-compose.offline.gpu.yml" not in commands
 
 
 def test_installer_configures_rhel_firewalld_without_ufw(tmp_path: Path) -> None:
@@ -830,11 +833,13 @@ def test_installer_rejects_gpu_when_cuda_container_is_unavailable(
 def test_installer_online_mode_delegates_to_accelerator(tmp_path: Path) -> None:
     release = _prepare_release(tmp_path)
     for relative_path in (
-        "docker-compose.yml",
-        "docker-compose.gpu.yml",
+        "compose/docker-compose.yml",
+        "compose/docker-compose.gpu.yml",
         ".env.example",
     ):
-        shutil.copy2(ROOT / relative_path, release / relative_path)
+        destination = release / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative_path, destination)
     # Replace accelerator.sh with a stub that records the delegated invocation and
     # is a no-op when sourced (so install.sh's `source` defines nothing for --gpu no).
     _write_executable(

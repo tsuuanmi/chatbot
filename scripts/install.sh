@@ -3,7 +3,7 @@ set -Eeuo pipefail
 umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [[ -f "$SCRIPT_DIR/docker-compose.offline.yml" ]]; then
+if [[ -f "$SCRIPT_DIR/compose/docker-compose.offline.yml" ]]; then
   INSTALL_DIR="$SCRIPT_DIR"
 else
   INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -236,8 +236,8 @@ if [[ "$MODE" == "offline" ]]; then
   [[ -f "$INSTALL_DIR/SHA256SUMS" \
     && -f "$INSTALL_DIR/release-manifest.json" \
     && -f "$INSTALL_DIR/images/runtime-images.tar" \
-    && -f "$INSTALL_DIR/docker-compose.offline.yml" \
-    && -f "$INSTALL_DIR/docker-compose.offline.gpu.yml" \
+    && -f "$INSTALL_DIR/compose/docker-compose.offline.yml" \
+    && -f "$INSTALL_DIR/compose/docker-compose.offline.gpu.yml" \
     && -f "$INSTALL_DIR/scripts/accelerator.sh" \
     && -f "$INSTALL_DIR/scripts/offline/configure_host.sh" \
     && -f "$INSTALL_DIR/scripts/offline/host_platform.sh" \
@@ -248,8 +248,8 @@ if [[ "$MODE" == "offline" ]]; then
     exit 1
   }
 else
-  [[ -f "$INSTALL_DIR/docker-compose.yml" \
-    && -f "$INSTALL_DIR/docker-compose.gpu.yml" \
+  [[ -f "$INSTALL_DIR/compose/docker-compose.yml" \
+    && -f "$INSTALL_DIR/compose/docker-compose.gpu.yml" \
     && -f "$INSTALL_DIR/scripts/accelerator.sh" \
     && -f "$INSTALL_DIR/.env.example" ]] || {
     echo "Required online files are missing or incomplete." >&2

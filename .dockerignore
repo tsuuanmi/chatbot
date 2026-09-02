@@ -23,4 +23,4 @@ install.sh
 tests
 docs
 README.md
-docker-compose*.yml
+compose/

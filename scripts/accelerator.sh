@@ -66,13 +66,15 @@ run_online_compose() {
   local profile="$1"
   shift
   accelerator_compose_files "$profile" \
-    "$ACCELERATOR_ROOT/docker-compose.yml" \
-    "$ACCELERATOR_ROOT/docker-compose.gpu.yml"
+    "$ACCELERATOR_ROOT/compose/docker-compose.yml" \
+    "$ACCELERATOR_ROOT/compose/docker-compose.gpu.yml"
   if [[ "$profile" == "cpu" ]]; then
     LLAMA_GPU_LAYERS=0 LLAMA_GPU_LAYERS_DRAFT=0 EMBEDDING_GPU_LAYERS=0 \
-      docker compose "${ACCELERATOR_COMPOSE_FILES[@]}" "$@"
+      docker compose --project-directory "$ACCELERATOR_ROOT" \
+        --env-file "$ACCELERATOR_ROOT/.env" "${ACCELERATOR_COMPOSE_FILES[@]}" "$@"
   else
-    docker compose "${ACCELERATOR_COMPOSE_FILES[@]}" "$@"
+    docker compose --project-directory "$ACCELERATOR_ROOT" \
+      --env-file "$ACCELERATOR_ROOT/.env" "${ACCELERATOR_COMPOSE_FILES[@]}" "$@"
   fi
 }
 
