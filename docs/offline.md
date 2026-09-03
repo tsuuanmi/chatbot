@@ -276,8 +276,8 @@ back generated chatbot containers, project volumes, secrets, and configuration. 
 chatbot containers and volumes are intentionally not restored, ensuring that a retry in
 the same folder starts with a fresh PostgreSQL database. Docker images and model files
 remain available, and fail-closed host firewall rules may remain active. The installer
-records its intended firewall state before changing host rules, so
-`RESET_INCOMPLETE_INSTALL=YES` reconciles those rules on retry. The installer verifies
+records its intended firewall state so `RESET_INCOMPLETE_INSTALL=YES` reconciles those
+rules on retry. The installer verifies
 Docker's `DOCKER-USER` chain before selected chatbot data is removed and rechecks it after
 backend containers start; if that final check fails, selected chatbot data is still not
 restored. If an abrupt power loss leaves `.env` without the completion marker,
