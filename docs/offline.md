@@ -11,7 +11,8 @@ computer:
 /home/superman/workspaces/models.zip    the four GGUF model files with checksums
 ```
 
-Extract all three ZIPs into the same parent directory. Together they create a normal
+Extract all three ZIPs into a new, empty parent directory. This prevents a previous
+release entrypoint from remaining after an overlay extraction. Together they create a normal
 repository-like directory:
 
 ```text
@@ -19,7 +20,7 @@ chatbot/
 ├── src/                         application source
 ├── docs/                        operator and API documentation
 ├── config/                      static templates and generated secrets
-├── scripts/install.sh           canonical installer source
+├── scripts/setup.sh           canonical installer source
 ├── scripts/offline/             start, stop, client, backup, restore tools
 ├── data/                        packaged knowledge and configured figures
 ├── tests/                       source-level tests
@@ -32,7 +33,7 @@ chatbot/
 │   └── docker-compose.offline.gpu.yml offline GPU override
 ├── release-manifest.json
 ├── SHA256SUMS
-└── install.sh                   generated one-command target entry point
+└── setup.sh                   generated one-command target entry point
 ```
 
 `chatbot.zip` contains source read from the committed `git archive HEAD`, plus
@@ -95,8 +96,9 @@ Supported target profiles:
   8.10 x86_64;
 - Intel i7-9700K class CPU or better and 32 GB RAM;
 - at least 20 GB free SSD space plus backup space, subject to final dual-image archive measurement;
-- rootful Docker Engine with the Compose plugin and an IPv4 `DOCKER-USER` iptables
-  chain; Podman and Docker firewall backends without that chain are not supported;
+- rootful Docker Engine with the Compose plugin that routes IPv4 `FORWARD` traffic
+  through its `DOCKER-USER` iptables chain; Podman and Docker firewall backends
+  without that path are not supported;
 - Ubuntu: UFW, iptables, systemd, and sudo access for automatic host security/startup setup;
 - RHEL: firewalld, iptables, systemd, SELinux tools, and sudo access. SELinux must remain
   `Enforcing`; Compose applies the required labels to chatbot bind mounts;
@@ -207,14 +209,15 @@ Install from a local target terminal so the sudo prompt is visible:
 
 ```bash
 cd /home/superman/workspaces/chatbot
-chmod +x install.sh
-./install.sh --gpu no             # CPU profile, no NVIDIA requirement
-# or: ./install.sh --gpu yes      # require a verified NVIDIA GPU profile
-# or: ./install.sh --gpu yes --mode online  # build/pull images instead of loading them
+chmod +x setup.sh
+./setup.sh --gpu no             # CPU profile, no NVIDIA requirement
+# or: ./setup.sh --gpu yes      # require a verified NVIDIA GPU profile
+# or: ./setup.sh --gpu yes --mode online  # build/pull images instead of loading them
 ```
 
-`--gpu yes` requires and validates a 6 GiB NVIDIA GPU, the NVIDIA host, and the loaded
-CUDA image; it fails instead of falling back to CPU. `--gpu no` installs CPU-only.
+`./setup.sh` is the offline release entrypoint; `make setup` remains the development
+dependency setup command. `--gpu yes` requires and validates a 6 GiB NVIDIA GPU, the
+NVIDIA host, and the loaded CUDA image; it fails instead of falling back to CPU. `--gpu no` installs CPU-only.
 `--mode` defaults to
 `offline`; `--mode online` builds and pulls images via `accelerator.sh online` instead
 of loading `images/runtime-images.tar`, and skips the offline firewall, client
@@ -230,12 +233,12 @@ screen and retained in `install.log`.
 Optional installation environment variables:
 
 ```bash
-SERVER_ADDRESS=192.168.1.50 ./install.sh --gpu no  # choose an assigned local address
-LAN_CIDR=192.168.1.0/24 ./install.sh --gpu no      # override the trusted interface subnet
-CLIENT_COUNT=3 ./install.sh --gpu no               # generate client-01 through client-03
-HTTP_PORT=8080 ./install.sh --gpu no               # use a non-default host port
-SSH_PORT=2222 ./install.sh --gpu no                # preserve a non-default LAN SSH port
-BIND_ADDRESS=192.168.1.50 ./install.sh --gpu no    # restrict Nginx to one interface
+SERVER_ADDRESS=192.168.1.50 ./setup.sh --gpu no  # choose an assigned local address
+LAN_CIDR=192.168.1.0/24 ./setup.sh --gpu no      # override the trusted interface subnet
+CLIENT_COUNT=3 ./setup.sh --gpu no               # generate client-01 through client-03
+HTTP_PORT=8080 ./setup.sh --gpu no               # use a non-default host port
+SSH_PORT=2222 ./setup.sh --gpu no                # preserve a non-default LAN SSH port
+BIND_ADDRESS=192.168.1.50 ./setup.sh --gpu no    # restrict Nginx to one interface
 ```
 
 `SERVER_ADDRESS` and a custom `BIND_ADDRESS` must be IPv4 addresses assigned to the
@@ -263,7 +266,7 @@ The installer performs these actions:
 13. enables Docker at boot, starts Nginx/FastAPI, and calls authenticated readiness;
 14. verifies every long-running chatbot container uses `restart: unless-stopped`.
 
-After successful setup, `install.sh` writes `config/.installed` and refuses to run
+After successful setup, `setup.sh` writes `config/.installed` and refuses to run
 again; use the lifecycle commands in section 9. A normal installation failure rolls
 back generated chatbot containers, project volumes, secrets, and configuration. Selected
 chatbot containers and volumes are intentionally not restored, ensuring that a retry in
@@ -277,7 +280,7 @@ restored. If an abrupt power loss leaves `.env` without the completion marker,
 reset and retry with:
 
 ```bash
-RESET_INCOMPLETE_INSTALL=YES ./install.sh --gpu no
+RESET_INCOMPLETE_INSTALL=YES ./setup.sh --gpu no
 ```
 
 ### 6.1. Migrate resources from an earlier naming scheme
@@ -296,7 +299,7 @@ docker volume ls -q
 ```
 
 Repeat the `--container` and `--volume` options as needed. The command is not called by
-`install.sh`, accepts no wildcards, and requires `--confirm`. Handle any previous host
+`setup.sh`, accepts no wildcards, and requires `--confirm`. Handle any previous host
 firewall unit, program, state file, or iptables chain separately with the host's
 administration tools before enabling the new chatbot firewall service.
 
@@ -585,7 +588,7 @@ With target WAN access disconnected:
 
 - extract `chatbot.zip`, `images.zip`, and `models.zip` under `/home/superman/workspaces`;
 - reserve the target's LAN IPv4 address and confirm the installer selects its CIDR;
-- run `./install.sh --gpu yes` (or `--gpu no`) successfully and confirm five credential files are generated;
+- run `./setup.sh --gpu yes` (or `--gpu no`) successfully and confirm five credential files are generated;
 - confirm only containers and volumes with the release folder's project label were removed, unrelated resources remain, and every new service is healthy; migrate any earlier-naming resources separately;
 - confirm authenticated `/api/v1/ready` reports `ready`;
 - test prepared, generated, figure, streaming, and delete paths;

@@ -84,13 +84,13 @@ mkdir -p "$stage/images" "$stage/models" \
   "$(dirname "$MODELS_OUTPUT")"
 
 git -C "$ROOT" archive --format=tar "$source_commit" | tar -C "$stage" -xf -
-[[ -f "$stage/scripts/install.sh" ]] || {
-  echo "Committed source is missing scripts/install.sh." >&2
+[[ -f "$stage/scripts/setup.sh" ]] || {
+  echo "Committed source is missing scripts/setup.sh." >&2
   exit 1
 }
-cp "$stage/scripts/install.sh" "$stage/install.sh"
-chmod 755 "$stage/install.sh" "$stage/scripts/accelerator.sh" \
-  "$stage/scripts/prepare.sh" "$stage/scripts/install.sh" \
+cp "$stage/scripts/setup.sh" "$stage/setup.sh"
+chmod 755 "$stage/setup.sh" "$stage/scripts/accelerator.sh" \
+  "$stage/scripts/prepare.sh" "$stage/scripts/setup.sh" \
   "$stage/scripts/offline"/*.sh
 for model in "${MODEL_NAMES[@]}"; do
   cp "$ROOT/models/$model" "$stage/models/$model"
@@ -183,4 +183,4 @@ echo "Created source: $CHATBOT_OUTPUT"
 echo "Created Docker images: $IMAGES_OUTPUT"
 echo "Created GGUF models: $MODELS_OUTPUT"
 echo "Source commit: $source_commit"
-echo "Extract all three ZIPs into the same parent directory before running install.sh."
+echo "Extract all three ZIPs into a clean parent directory before running setup.sh."

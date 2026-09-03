@@ -181,10 +181,10 @@ type.
 
 Supported offline targets are Ubuntu 22.04 LTS, Ubuntu 26.04 LTS, and Red Hat
 Enterprise Linux 8.10, all with rootful Docker Engine and the Compose plugin; Podman
-is not supported. Docker must expose its IPv4 `DOCKER-USER` iptables chain for LAN
-port isolation. RHEL keeps SELinux Enforcing and uses firewalld.
+is not supported. Docker must route IPv4 `FORWARD` traffic through its
+`DOCKER-USER` iptables chain for LAN port isolation. RHEL keeps SELinux Enforcing and uses firewalld.
 
-On the dedicated target computer, extract all three ZIPs into the same directory:
+On the dedicated target computer, extract all three ZIPs into a new, empty directory:
 
 ```bash
 cd /home/superman/workspaces
@@ -192,9 +192,12 @@ unzip /path/to/chatbot.zip
 unzip /path/to/images.zip
 unzip /path/to/models.zip
 cd chatbot
-./install.sh --gpu no          # CPU profile
-# or: ./install.sh --gpu yes   # require the NVIDIA GPU profile
+./setup.sh --gpu no          # CPU profile
+# or: ./setup.sh --gpu yes   # require the NVIDIA GPU profile
 ```
+
+`./setup.sh` is the offline release entrypoint; `make setup` remains the development
+dependency setup command.
 
 The installer detects the primary LAN IPv4 address and subnet, removes only containers
 and volumes bearing this release folder's path-derived Compose project label, preserves

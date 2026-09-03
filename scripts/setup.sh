@@ -71,7 +71,7 @@ verify_models() {
   for model in "${required_models[@]}"; do
     [[ -f "$MODEL_DIR/$model" ]] || {
       echo "Missing model: $MODEL_DIR/$model" >&2
-      echo "Extract models.zip into $MODEL_DIR or place all four GGUF files there, then run install.sh again." >&2
+      echo "Extract models.zip into $MODEL_DIR or place all four GGUF files there, then run setup.sh again." >&2
       return 1
     }
     log "Found model filename: $model"
@@ -214,7 +214,7 @@ if [[ "$MODE" == "offline" ]]; then
   }
   [[ -e "$INSTALL_MARKER" ]] && {
     echo "This folder is already configured." >&2
-    echo "Use ./scripts/offline/offline.sh start instead of running install.sh again." >&2
+    echo "Use ./scripts/offline/offline.sh start instead of running setup.sh again." >&2
     exit 1
   }
   if [[ -e "$INSTALL_DIR/.env" ]]; then
@@ -494,7 +494,7 @@ fi
 echo "Total residual GPU memory: ${remaining_gpu_mb} MiB" >&2
 if (( remaining_gpu_mb >= residual_gpu_limit_mb )); then
   echo "Residual GPU usage is at least ${residual_gpu_limit_mb} MiB." >&2
-  echo "Stop substantial GPU processes safely, then run install.sh again." >&2
+  echo "Stop substantial GPU processes safely, then run setup.sh again." >&2
   exit 1
 fi
 if (( remaining_gpu_mb > 0 )); then

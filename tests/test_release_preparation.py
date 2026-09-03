@@ -117,6 +117,15 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
         assert (compose_dir / name).is_file()
         assert not (extract / "chatbot" / name).exists()
     assert (extract / "chatbot" / "scripts" / "accelerator.sh").is_file()
+    setup = extract / "chatbot" / "setup.sh"
+    assert setup.is_file()
+    assert setup.stat().st_mode & 0o111
+    assert any(
+        line.endswith("  ./setup.sh")
+        for line in (extract / "chatbot" / "SHA256SUMS")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
     assert (extract / "chatbot" / "scripts" / "offline" / "host_platform.sh").is_file()
     migration_script = (
         extract / "chatbot" / "scripts" / "offline" / "migrate_resources.sh"

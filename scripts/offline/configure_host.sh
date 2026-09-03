@@ -124,6 +124,10 @@ verify_docker_user_chain() {
     echo "Docker does not provide the required DOCKER-USER firewall chain." >&2
     return 1
   }
+  sudo "$iptables_path" -C FORWARD -j DOCKER-USER >/dev/null || {
+    echo "Docker does not route forwarded traffic through the DOCKER-USER firewall chain." >&2
+    return 1
+  }
 }
 
 write_firewall_state() {

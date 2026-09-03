@@ -52,7 +52,7 @@ def _prepare_release(tmp_path: Path) -> Path:
         "scripts/offline/detect_network.py",
         "scripts/offline/manage_client.sh",
     )
-    shutil.copy2(ROOT / "scripts/install.sh", release / "install.sh")
+    shutil.copy2(ROOT / "scripts/setup.sh", release / "setup.sh")
     for relative_path in source_files:
         destination = release / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -94,7 +94,7 @@ def _prepare_release(tmp_path: Path) -> Path:
     )
 
     checksum_paths = [
-        release / "install.sh",
+        release / "setup.sh",
         release / "compose/docker-compose.offline.yml",
         release / "release-manifest.json",
         *(release / relative_path for relative_path in source_files[1:]),
@@ -303,6 +303,8 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
             state = json.loads(state_path.read_text(encoding="utf-8"))
         elif os.environ["MOCK_DOCKER_USER_CHAIN"] == "1":
             state = {"DOCKER-USER": []}
+            if os.environ["MOCK_DOCKER_USER_FORWARD"] == "1":
+                state["FORWARD"] = [["-j", "DOCKER-USER"]]
         else:
             state = {}
         action = args[0]
@@ -429,6 +431,7 @@ def _run_installer(
     reset_incomplete: bool = False,
     platform: str = "ubuntu",
     docker_user_chain: bool = True,
+    docker_user_forward: bool = True,
     broad_firewall_rule: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
     release = _prepare_release(tmp_path)
@@ -460,6 +463,7 @@ def _run_installer(
             "MOCK_CURL_FAIL": "1" if curl_fails else "0",
             "MOCK_DOCKER_PS_FAIL": "1" if docker_ps_fails else "0",
             "MOCK_DOCKER_USER_CHAIN": "1" if docker_user_chain else "0",
+            "MOCK_DOCKER_USER_FORWARD": "1" if docker_user_forward else "0",
             "MOCK_GPU_MEMORY_USED": str(gpu_memory_used),
             "MOCK_GPU_MEMORY_TOTAL": str(gpu_memory_total),
             "MOCK_GPU_PROCESSES": gpu_processes,
@@ -477,7 +481,7 @@ def _run_installer(
     )
     environment.pop("OFFLINE_ENV", None)
     result = subprocess.run(
-        ["bash", "./install.sh", "--gpu", gpu],
+        ["bash", "./setup.sh", "--gpu", gpu],
         cwd=release,
         env=environment,
         capture_output=True,
@@ -611,6 +615,19 @@ def test_installer_rejects_missing_docker_user_before_cleanup(tmp_path: Path) ->
     assert "required DOCKER-USER firewall chain" in result.stdout
     commands = command_log.read_text(encoding="utf-8")
     assert "iptables -S DOCKER-USER" in commands
+    assert "docker rm -f" not in commands
+
+
+def test_installer_rejects_detached_docker_user_before_cleanup(tmp_path: Path) -> None:
+    result, release, command_log, _ = _run_installer(
+        tmp_path, docker_user_forward=False
+    )
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert "does not route forwarded traffic" in result.stdout
+    commands = command_log.read_text(encoding="utf-8")
+    assert "iptables -C FORWARD -j DOCKER-USER" in commands
     assert "docker rm -f" not in commands
 
 
@@ -905,7 +922,7 @@ def test_installer_online_mode_delegates_to_accelerator(tmp_path: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / relative_path, destination)
     # Replace accelerator.sh with a stub that records the delegated invocation and
-    # is a no-op when sourced (so install.sh's `source` defines nothing for --gpu no).
+    # is a no-op when sourced (so setup.sh's `source` defines nothing for --gpu no).
     _write_executable(
         release / "scripts/accelerator.sh",
         r"""
@@ -926,7 +943,7 @@ def test_installer_online_mode_delegates_to_accelerator(tmp_path: Path) -> None:
     )
     environment.pop("OFFLINE_ENV", None)
     result = subprocess.run(
-        ["bash", "./install.sh", "--mode", "online", "--gpu", "no"],
+        ["bash", "./setup.sh", "--mode", "online", "--gpu", "no"],
         cwd=release,
         env=environment,
         capture_output=True,

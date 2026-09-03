@@ -19,7 +19,7 @@ backups
 images
 release-manifest.json
 SHA256SUMS
-install.sh
+setup.sh
 tests
 docs
 README.md
