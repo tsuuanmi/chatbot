@@ -233,7 +233,13 @@ configure_firewalld() {
   sudo firewall-cmd --state >/dev/null
   assert_firewalld_port_restricted "$SSH_PORT"
   assert_firewalld_port_restricted "$HTTP_PORT"
-  write_firewall_state
+  for port in "$SSH_PORT" "$HTTP_PORT"; do
+    rule="$(firewalld_rule "$LAN_CIDR" "$port")"
+    sudo firewall-cmd --zone="$FIREWALL_ZONE" --add-rich-rule "$rule"
+    sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --add-rich-rule "$rule"
+    sudo firewall-cmd --zone="$FIREWALL_ZONE" --query-rich-rule "$rule" >/dev/null
+    sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --query-rich-rule "$rule" >/dev/null
+  done
   for service in ssh; do
     sudo firewall-cmd --zone="$FIREWALL_ZONE" --remove-service="$service" >/dev/null 2>&1 || true
     sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --remove-service="$service" >/dev/null 2>&1 || true
@@ -246,11 +252,8 @@ configure_firewalld() {
     sudo firewall-cmd --zone="$FIREWALL_ZONE" --remove-port="${port}/tcp" >/dev/null 2>&1 || true
     sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --remove-port="${port}/tcp" >/dev/null 2>&1 || true
   done
-  for port in "$SSH_PORT" "$HTTP_PORT"; do
-    rule="$(firewalld_rule "$LAN_CIDR" "$port")"
-    sudo firewall-cmd --zone="$FIREWALL_ZONE" --add-rich-rule "$rule"
-    sudo firewall-cmd --permanent --zone="$FIREWALL_ZONE" --add-rich-rule "$rule"
-  done
+  remove_previous_rules
+  write_firewall_state
   log "Restricted SSH port $SSH_PORT and chatbot HTTP port $HTTP_PORT to $LAN_CIDR in firewalld zone $FIREWALL_ZONE"
 }
 
@@ -271,9 +274,11 @@ else
   fi
 fi
 
-remove_previous_rules
 case "$FIREWALL_BACKEND" in
-  ufw) configure_ufw ;;
+  ufw)
+    remove_previous_rules
+    configure_ufw
+    ;;
   firewalld) configure_firewalld ;;
 esac
 

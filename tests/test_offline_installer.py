@@ -385,6 +385,8 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
             args[0] = str(Path(__file__).with_name("iptables"))
             raise SystemExit(subprocess.run(args, check=False).returncode)
         elif command == "firewall-cmd":
+            if os.environ["MOCK_FIREWALLD_ADD_FAIL"] == "1" and "--add-rich-rule" in args:
+                raise SystemExit(1)
             if any(value.startswith("--get-zone-of-interface=") for value in args):
                 print("public")
             elif "--get-default-zone" in args:
@@ -449,6 +451,8 @@ def _run_installer(
     docker_user_forward: bool = True,
     docker_user_forward_first: bool = True,
     conntrack_fails: bool = False,
+    bind_address: str = "0.0.0.0",
+    firewalld_add_fails: bool = False,
     broad_firewall_rule: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
     release = _prepare_release(tmp_path)
@@ -472,6 +476,7 @@ def _run_installer(
         {
             "CLIENT_COUNT": "5",
             "HTTP_PORT": "18080",
+            "BIND_ADDRESS": bind_address,
             "MOCK_CHATBOT_UNHEALTHY": "1" if chatbot_unhealthy else "0",
             "MOCK_CHATBOT_UP_FAIL": "1" if chatbot_up_fails else "0",
             "MOCK_CHATBOT_PROJECT_NAME": "chatbot-"
@@ -483,6 +488,7 @@ def _run_installer(
             "MOCK_DOCKER_USER_FORWARD": "1" if docker_user_forward else "0",
             "MOCK_DOCKER_USER_FORWARD_FIRST": "1" if docker_user_forward_first else "0",
             "MOCK_CONNTRACK_FAIL": "1" if conntrack_fails else "0",
+            "MOCK_FIREWALLD_ADD_FAIL": "1" if firewalld_add_fails else "0",
             "MOCK_GPU_MEMORY_USED": str(gpu_memory_used),
             "MOCK_GPU_MEMORY_TOTAL": str(gpu_memory_total),
             "MOCK_GPU_PROCESSES": gpu_processes,
@@ -576,7 +582,11 @@ def test_installer_completes_with_five_clients_and_host_automation(
         encoding="utf-8"
     )
     assert "HTTP_PORT='18080'" in firewall_program
+    assert "IPTABLES='/usr/sbin/iptables'" in firewall_program
     assert "PROXY_CONTAINER_PORT='80'" in firewall_program
+    subprocess.run(
+        ["bash", "-n", str(mock_root / "usr/local/sbin/chatbot-firewall")], check=True
+    )
     assert '--ctorigdstport "$HTTP_PORT" -j DROP' in firewall_program
 
     firewall_state = json.loads(
@@ -733,6 +743,7 @@ def test_installer_configures_rhel_firewalld_without_ufw(tmp_path: Path) -> None
     assert "firewall-cmd --state" in commands
     assert "--add-rich-rule" in commands
     assert "--remove-service=ssh" in commands
+    assert commands.index("--add-rich-rule") < commands.index("--remove-service=ssh")
     assert commands.index("iptables -m conntrack -h") < commands.index("docker rm -f")
     assert commands.index("firewall-cmd --state") < commands.index("docker rm -f")
     assert "--reload" not in commands
@@ -742,6 +753,21 @@ def test_installer_configures_rhel_firewalld_without_ufw(tmp_path: Path) -> None
     )
     assert "FIREWALL_BACKEND=firewalld" in firewall_state
     assert "FIREWALL_ZONE=public" in firewall_state
+
+
+def test_firewalld_add_failure_preserves_broad_access(tmp_path: Path) -> None:
+    result, _, command_log, _ = _run_installer(
+        tmp_path,
+        gpu="no",
+        platform="rhel",
+        firewalld_add_fails=True,
+    )
+
+    assert result.returncode != 0
+    commands = command_log.read_text(encoding="utf-8")
+    assert "--add-rich-rule" in commands
+    assert "--remove-service=ssh" not in commands
+    assert "--remove-port=22/tcp" not in commands
 
 
 def test_installer_rejects_broad_rhel_firewalld_rule_before_cleanup(
@@ -912,8 +938,22 @@ def test_installer_blocks_1024_mib_residual_gpu_usage(tmp_path: Path) -> None:
     assert "Total residual GPU memory: 1024 MiB" in result.stdout
     assert "Residual GPU usage is at least 1024 MiB" in result.stdout
     commands = command_log.read_text(encoding="utf-8")
-    assert EXPECTED_REMOVAL_COMMAND in commands
-    assert "docker rm -f camofox-browser" not in commands
+    assert "docker rm -f" not in commands
+    assert "docker volume rm" not in commands
+
+
+def test_installer_rejects_invalid_bind_address_before_cleanup(tmp_path: Path) -> None:
+    result, release, command_log, _ = _run_installer(
+        tmp_path,
+        bind_address="not-an-ip-address",
+    )
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert "invalid IPv4 bind address" in result.stdout
+    commands = command_log.read_text(encoding="utf-8")
+    assert "docker rm -f" not in commands
+    assert "docker volume rm" not in commands
 
 
 def test_installer_rejects_invalid_gpu_memory_measurement(tmp_path: Path) -> None:

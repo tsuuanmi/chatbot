@@ -256,11 +256,11 @@ The installer performs these actions:
 4. loads images only after the archive checksum passes, confirms CPU and CUDA image tags, and validates CUDA container access and at least 6 GiB on every NVIDIA GPU before cleanup;
 5. preflights the selected host firewall backend, SELinux on RHEL, conntrack support,
    and Docker's `DOCKER-USER` chain before deleting current chatbot data;
-6. force-removes only containers and volumes carrying this release folder's
-   path-derived Compose project label, while preserving unrelated Docker resources;
-7. for GPU only, requires successful NVIDIA total-memory and process queries, warns
+6. for GPU only, requires successful NVIDIA total-memory and process queries, warns
    and continues when total residual use is below 1024 MiB, and stops at 1024 MiB or more;
-8. validates that the selected HTTP bind address/port is available;
+7. validates that the selected HTTP bind address/port is available;
+8. force-removes only containers and volumes carrying this release folder's
+   path-derived Compose project label, while preserving unrelated Docker resources;
 9. creates `.env`, service passwords, persistent directories, and configured client keys
    (five by default);
 10. starts and health-checks database, vector, and model services;
