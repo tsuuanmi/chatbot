@@ -155,20 +155,22 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
                 print("mock chatbot database authentication failure")
         elif args and args[0] == "info":
             print('{"nvidia": {}}' if os.environ.get("MOCK_NVIDIA_RUNTIME", "1") == "1" else "{}")
-        elif args[:2] == ["ps", "-aq"]:
+        elif args[:2] in (["ps", "-aq"], ["ps", "-q"]):
             if os.environ.get("MOCK_DOCKER_PS_FAIL") == "1":
                 raise SystemExit(42)
-            print(
-                "chatbot\n"
-                "chatbot-postgres\n"
-                "llama-server\n"
-                "embedding-server\n"
-                "chatbot-chromadb\n"
-                "Chatbot-uppercase\n"
-                "camofox-browser\n"
-                "unrelated-project-worker\n"
-                "current-labeled"
-            )
+            containers = [
+                "chatbot",
+                "chatbot-postgres",
+                "llama-server",
+                "embedding-server",
+                "chatbot-chromadb",
+                "Chatbot-uppercase",
+                "camofox-browser",
+                "unrelated-project-worker",
+            ]
+            if args[1] == "-aq" or os.environ["MOCK_LABELED_CONTAINER_RUNNING"] == "1":
+                containers.append("current-labeled")
+            print("\n".join(containers))
         elif args and args[0] == "inspect":
             target = args[-1]
             format_value = args[args.index("--format") + 1]
@@ -458,6 +460,7 @@ def _run_installer(
     http_port: int = 18080,
     firewalld_add_fails: bool = False,
     previous_firewall_state: str = "",
+    labeled_container_running: bool = True,
     broad_firewall_rule: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
     release = _prepare_release(tmp_path)
@@ -498,6 +501,7 @@ def _run_installer(
             "MOCK_DOCKER_USER_FORWARD_FIRST": "1" if docker_user_forward_first else "0",
             "MOCK_CONNTRACK_FAIL": "1" if conntrack_fails else "0",
             "MOCK_FIREWALLD_ADD_FAIL": "1" if firewalld_add_fails else "0",
+            "MOCK_LABELED_CONTAINER_RUNNING": "1" if labeled_container_running else "0",
             "MOCK_GPU_MEMORY_USED": str(gpu_memory_used),
             "MOCK_GPU_MEMORY_TOTAL": str(gpu_memory_total),
             "MOCK_GPU_PROCESSES": gpu_processes,
@@ -975,6 +979,22 @@ def test_incomplete_gpu_reset_stops_labeled_containers_before_gpu_check(
     )
     assert "docker rm -f" not in commands
     assert "docker volume rm" not in commands
+
+
+def test_incomplete_gpu_reset_ignores_stopped_labeled_containers(
+    tmp_path: Path,
+) -> None:
+    result, _, command_log, _ = _run_installer(
+        tmp_path,
+        reset_incomplete=True,
+        gpu_memory_used=0,
+        labeled_container_running=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    commands = command_log.read_text(encoding="utf-8")
+    assert "docker ps -q" in commands
+    assert "docker stop current-labeled" not in commands
 
 
 def test_installer_blocks_1024_mib_residual_gpu_usage(tmp_path: Path) -> None:

@@ -57,7 +57,7 @@ add_chatbot_volume() {
 stop_incomplete_gpu_containers() {
   local container_id compose_project
   local existing_container_output
-  existing_container_output="$(docker ps -aq)"
+  existing_container_output="$(docker ps -q)"
   [[ -n "$existing_container_output" ]] || return 0
   while IFS= read -r container_id; do
     compose_project="$(docker inspect --format '{{if .Config.Labels}}{{index .Config.Labels "com.docker.compose.project"}}{{end}}' "$container_id")"
