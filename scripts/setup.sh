@@ -23,6 +23,7 @@ INSTALL_LOG="$INSTALL_DIR/install.log"
 installation_started=false
 installation_complete=false
 reset_incomplete_installation=false
+stopped_incomplete_gpu_containers=()
 step_number=0
 current_step="initialization"
 total_steps=15
@@ -64,6 +65,7 @@ stop_incomplete_gpu_containers() {
     if is_chatbot_project_identity "$compose_project"; then
       log "Stopping interrupted chatbot GPU container before residual GPU validation: $container_id"
       docker stop "$container_id" >/dev/null
+      stopped_incomplete_gpu_containers+=("$container_id")
     fi
   done <<< "$existing_container_output"
 }
@@ -175,6 +177,11 @@ cleanup_incomplete_installation() {
 
 rollback_incomplete_installation() {
   local status=$?
+  if (( status != 0 )) && (( ${#stopped_incomplete_gpu_containers[@]} > 0 )); then
+    log "Restoring interrupted chatbot GPU containers after preflight failure"
+    docker start "${stopped_incomplete_gpu_containers[@]}" >/dev/null \
+      || log "Could not restore all interrupted chatbot GPU containers"
+  fi
   if (( status != 0 )) && [[ "$installation_started" == true ]] \
     && [[ "$installation_complete" != true ]]; then
     log "Installation failed; rolling back generated chatbot state for a safe retry"
@@ -506,6 +513,7 @@ fi
 log "LAN API URL will be: $CHATBOT_ORIGIN"
 
 if [[ "$reset_incomplete_installation" == true ]]; then
+  stopped_incomplete_gpu_containers=()
   cleanup_incomplete_installation
 fi
 

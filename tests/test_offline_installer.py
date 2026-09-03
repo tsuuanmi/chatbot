@@ -218,7 +218,7 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
             if os.environ.get("MOCK_CUDA_UNAVAILABLE") == "1":
                 raise SystemExit(42)
             print("  CUDA")
-        elif args and args[0] in {"load", "rm", "stop", "update"}:
+        elif args and args[0] in {"load", "rm", "start", "stop", "update"}:
             pass
         else:
             raise SystemExit(f"unsupported mock docker command: {args}")
@@ -974,8 +974,10 @@ def test_incomplete_gpu_reset_stops_labeled_containers_before_gpu_check(
     assert result.returncode != 0
     assert (release / ".env").exists()
     commands = command_log.read_text(encoding="utf-8")
-    assert commands.index("docker stop current-labeled") < commands.index(
-        "nvidia-smi --query-gpu=memory.used"
+    assert (
+        commands.index("docker stop current-labeled")
+        < commands.index("nvidia-smi --query-gpu=memory.used")
+        < commands.index("docker start current-labeled")
     )
     assert "docker rm -f" not in commands
     assert "docker volume rm" not in commands
