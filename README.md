@@ -179,9 +179,10 @@ installed in the application image inside `images.zip`. The image archive includ
 both pinned CPU and CUDA llama.cpp servers so one release can install on either host
 type.
 
-Supported offline targets are Ubuntu 26.04 LTS and Red Hat Enterprise Linux 8.10,
-both with Docker Engine and the Compose plugin; Podman is not supported. RHEL keeps
-SELinux Enforcing and uses firewalld.
+Supported offline targets are Ubuntu 22.04 LTS, Ubuntu 26.04 LTS, and Red Hat
+Enterprise Linux 8.10, all with rootful Docker Engine and the Compose plugin; Podman
+is not supported. Docker must expose its IPv4 `DOCKER-USER` iptables chain for LAN
+port isolation. RHEL keeps SELinux Enforcing and uses firewalld.
 
 On the dedicated target computer, extract all three ZIPs into the same directory:
 

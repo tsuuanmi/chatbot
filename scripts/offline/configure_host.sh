@@ -119,6 +119,13 @@ for rule in os.environ["FIREWALL_RULES"].splitlines():
 PY
 }
 
+verify_docker_user_chain() {
+  sudo "$iptables_path" -S DOCKER-USER >/dev/null || {
+    echo "Docker does not provide the required DOCKER-USER firewall chain." >&2
+    return 1
+  }
+}
+
 write_firewall_state() {
   local state_tmp
   state_tmp="$(mktemp)"
@@ -183,6 +190,7 @@ preflight_host_firewall() {
   sudo -v
   iptables_path="$(command -v iptables)"
   "$iptables_path" -m conntrack -h >/dev/null
+  verify_docker_user_chain
   if [[ "$FIREWALL_BACKEND" == "firewalld" ]]; then
     FIREWALL_ZONE="$(firewalld_zone)"
     sudo firewall-cmd --state >/dev/null
@@ -235,8 +243,8 @@ preflight_host_firewall
 if [[ "$PREFLIGHT" == true ]]; then
   exit 0
 fi
-log "Preflighting the Docker DOCKER-USER chain"
-sudo "$iptables_path" -S DOCKER-USER >/dev/null
+log "Rechecking the Docker DOCKER-USER chain after backend startup"
+verify_docker_user_chain
 if sudo "$iptables_path" -C DOCKER-USER -p tcp --dport 80 -m conntrack \
   --ctdir ORIGINAL --ctorigdstport "$HTTP_PORT" -j ACCEPT 2>/dev/null; then
   :

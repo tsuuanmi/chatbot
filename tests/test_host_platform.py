@@ -25,11 +25,14 @@ def _run_platform(tmp_path: Path, os_release: str) -> subprocess.CompletedProces
 
 
 def test_host_platform_accepts_supported_ubuntu_and_rhel(tmp_path: Path) -> None:
-    ubuntu = _run_platform(tmp_path, "ID=ubuntu\nVERSION_ID=26.04\n")
+    ubuntu_2204 = _run_platform(tmp_path, "ID=ubuntu\nVERSION_ID=22.04\n")
+    ubuntu_2604 = _run_platform(tmp_path, "ID=ubuntu\nVERSION_ID=26.04\n")
     rhel = _run_platform(tmp_path, "ID=rhel\nVERSION_ID=8.10\n")
 
-    assert ubuntu.returncode == 0
-    assert ubuntu.stdout == "ubuntu\n"
+    assert ubuntu_2204.returncode == 0
+    assert ubuntu_2204.stdout == "ubuntu\n"
+    assert ubuntu_2604.returncode == 0
+    assert ubuntu_2604.stdout == "ubuntu\n"
     assert rhel.returncode == 0
     assert rhel.stdout == "rhel\n"
 

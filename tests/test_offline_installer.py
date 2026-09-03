@@ -299,11 +299,12 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
             "iptables " + shlex.join(args) + "\n"
         )
         state_path = Path(os.environ["MOCK_IPTABLES_STATE"])
-        state = (
-            json.loads(state_path.read_text(encoding="utf-8"))
-            if state_path.is_file()
-            else {"DOCKER-USER": []}
-        )
+        if state_path.is_file():
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        elif os.environ["MOCK_DOCKER_USER_CHAIN"] == "1":
+            state = {"DOCKER-USER": []}
+        else:
+            state = {}
         action = args[0]
         chain = args[1]
         changed = False
@@ -427,14 +428,18 @@ def _run_installer(
     runtime_images_corrupt: bool = False,
     reset_incomplete: bool = False,
     platform: str = "ubuntu",
+    docker_user_chain: bool = True,
     broad_firewall_rule: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
     release = _prepare_release(tmp_path)
     if runtime_images_corrupt:
         (release / "images/runtime-images.tar").write_bytes(b"tampered image archive")
     os_release = tmp_path / "os-release"
-    if platform == "ubuntu":
-        os_release.write_text("ID=ubuntu\nVERSION_ID=26.04\n", encoding="utf-8")
+    if platform in {"ubuntu", "ubuntu-22.04"}:
+        ubuntu_version = "22.04" if platform == "ubuntu-22.04" else "26.04"
+        os_release.write_text(
+            f"ID=ubuntu\nVERSION_ID={ubuntu_version}\n", encoding="utf-8"
+        )
     elif platform == "rhel":
         os_release.write_text("ID=rhel\nVERSION_ID=8.10\n", encoding="utf-8")
     else:
@@ -454,6 +459,7 @@ def _run_installer(
             "MOCK_COMMAND_LOG": str(command_log),
             "MOCK_CURL_FAIL": "1" if curl_fails else "0",
             "MOCK_DOCKER_PS_FAIL": "1" if docker_ps_fails else "0",
+            "MOCK_DOCKER_USER_CHAIN": "1" if docker_user_chain else "0",
             "MOCK_GPU_MEMORY_USED": str(gpu_memory_used),
             "MOCK_GPU_MEMORY_TOTAL": str(gpu_memory_total),
             "MOCK_GPU_PROCESSES": gpu_processes,
@@ -587,6 +593,25 @@ def test_installer_completes_with_five_clients_and_host_automation(
     install_log = (release / "install.log").read_text(encoding="utf-8")
     assert "STEP 15/15" in install_log
     assert "Generated 5 unique client credential file(s)" in install_log
+
+
+def test_installer_accepts_ubuntu_2204(tmp_path: Path) -> None:
+    result, _, command_log, _ = _run_installer(tmp_path, platform="ubuntu-22.04")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Supported target platform: ubuntu" in result.stdout
+    assert "docker rm -f" in command_log.read_text(encoding="utf-8")
+
+
+def test_installer_rejects_missing_docker_user_before_cleanup(tmp_path: Path) -> None:
+    result, release, command_log, _ = _run_installer(tmp_path, docker_user_chain=False)
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert "required DOCKER-USER firewall chain" in result.stdout
+    commands = command_log.read_text(encoding="utf-8")
+    assert "iptables -S DOCKER-USER" in commands
+    assert "docker rm -f" not in commands
 
 
 @pytest.mark.parametrize("platform", ["ubuntu", "rhel"])

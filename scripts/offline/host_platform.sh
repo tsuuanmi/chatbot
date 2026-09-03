@@ -11,7 +11,7 @@ host_platform() {
   # shellcheck disable=SC1090
   source "$HOST_OS_RELEASE"
   case "${ID:-}:${VERSION_ID:-}" in
-    ubuntu:26.04)
+    ubuntu:22.04|ubuntu:26.04)
       printf '%s\n' ubuntu
       ;;
     rhel:8.10)
@@ -19,7 +19,7 @@ host_platform() {
       ;;
     *)
       echo "Unsupported target operating system: ${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}" >&2
-      echo "Supported offline targets: Ubuntu 26.04 and Red Hat Enterprise Linux 8.10." >&2
+      echo "Supported offline targets: Ubuntu 22.04, Ubuntu 26.04, and Red Hat Enterprise Linux 8.10." >&2
       return 1
       ;;
   esac

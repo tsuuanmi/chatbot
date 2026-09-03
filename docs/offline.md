@@ -91,10 +91,12 @@ its own `/app/.venv` with all locked runtime dependencies. Installation and
 
 Supported target profiles:
 
-- Ubuntu 26.04 LTS x86_64 or Red Hat Enterprise Linux 8.10 x86_64;
+- Ubuntu 22.04 LTS x86_64, Ubuntu 26.04 LTS x86_64, or Red Hat Enterprise Linux
+  8.10 x86_64;
 - Intel i7-9700K class CPU or better and 32 GB RAM;
 - at least 20 GB free SSD space plus backup space, subject to final dual-image archive measurement;
-- Docker Engine and Docker Compose plugin; Podman is not supported;
+- rootful Docker Engine with the Compose plugin and an IPv4 `DOCKER-USER` iptables
+  chain; Podman and Docker firewall backends without that chain are not supported;
 - Ubuntu: UFW, iptables, systemd, and sudo access for automatic host security/startup setup;
 - RHEL: firewalld, iptables, systemd, SELinux tools, and sudo access. SELinux must remain
   `Enforcing`; Compose applies the required labels to chatbot bind mounts;
@@ -245,8 +247,8 @@ The installer performs these actions:
 2. detects and validates the server address, interface, and trusted LAN CIDR;
 3. checks four model filenames and their `models/SHA256SUMS` checksums, release checksums, the manifest-recorded runtime image archive checksum, free space, Docker, and the selected profile;
 4. loads images only after the archive checksum passes, confirms CPU and CUDA image tags, and validates CUDA container access and at least 6 GiB on every NVIDIA GPU before cleanup;
-5. preflights the selected host firewall backend, SELinux on RHEL, and conntrack support
-   before deleting current chatbot data;
+5. preflights the selected host firewall backend, SELinux on RHEL, conntrack support,
+   and Docker's `DOCKER-USER` chain before deleting current chatbot data;
 6. force-removes only containers and volumes carrying this release folder's
    path-derived Compose project label, while preserving unrelated Docker resources;
 7. for GPU only, requires successful NVIDIA total-memory and process queries, warns
@@ -268,10 +270,10 @@ chatbot containers and volumes are intentionally not restored, ensuring that a r
 the same folder starts with a fresh PostgreSQL database. Docker images and model files
 remain available, and fail-closed host firewall rules may remain active. The installer
 records its intended firewall state before changing host rules, so
-`RESET_INCOMPLETE_INSTALL=YES` reconciles those rules on retry. The Docker `DOCKER-USER`
-chain is verified only after backend containers start; if that final check fails, selected
-chatbot data is still not restored. If an abrupt power loss leaves `.env` without the
-completion marker,
+`RESET_INCOMPLETE_INSTALL=YES` reconciles those rules on retry. The installer verifies
+Docker's `DOCKER-USER` chain before selected chatbot data is removed and rechecks it after
+backend containers start; if that final check fails, selected chatbot data is still not
+restored. If an abrupt power loss leaves `.env` without the completion marker,
 reset and retry with:
 
 ```bash
