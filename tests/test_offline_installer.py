@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import socket
 import subprocess
 import textwrap
 from pathlib import Path
@@ -384,6 +385,8 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
         elif command == "iptables":
             args[0] = str(Path(__file__).with_name("iptables"))
             raise SystemExit(subprocess.run(args, check=False).returncode)
+        elif command == "python3":
+            raise SystemExit(subprocess.run(args, check=False).returncode)
         elif command == "firewall-cmd":
             if os.environ["MOCK_FIREWALLD_ADD_FAIL"] == "1" and "--add-rich-rule" in args:
                 raise SystemExit(1)
@@ -452,7 +455,9 @@ def _run_installer(
     docker_user_forward_first: bool = True,
     conntrack_fails: bool = False,
     bind_address: str = "0.0.0.0",
+    http_port: int = 18080,
     firewalld_add_fails: bool = False,
+    previous_firewall_state: str = "",
     broad_firewall_rule: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
     release = _prepare_release(tmp_path)
@@ -471,11 +476,15 @@ def _run_installer(
     if reset_incomplete:
         shutil.copy2(release / "config/offline.env.template", release / ".env")
     fake_bin, command_log, mock_root = _prepare_fake_commands(tmp_path)
+    if previous_firewall_state:
+        state_path = mock_root / "etc/chatbot/firewall.conf"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text(previous_firewall_state, encoding="utf-8")
     environment = os.environ.copy()
     environment.update(
         {
             "CLIENT_COUNT": "5",
-            "HTTP_PORT": "18080",
+            "HTTP_PORT": str(http_port),
             "BIND_ADDRESS": bind_address,
             "MOCK_CHATBOT_UNHEALTHY": "1" if chatbot_unhealthy else "0",
             "MOCK_CHATBOT_UP_FAIL": "1" if chatbot_up_fails else "0",
@@ -770,6 +779,30 @@ def test_firewalld_add_failure_preserves_broad_access(tmp_path: Path) -> None:
     assert "--remove-port=22/tcp" not in commands
 
 
+def test_firewalld_keeps_unchanged_previous_rules(tmp_path: Path) -> None:
+    previous_state = "\n".join(
+        (
+            "FIREWALL_BACKEND=firewalld",
+            "FIREWALL_ZONE=public",
+            "LAN_CIDR=192.168.50.0/24",
+            "SERVER_ADDRESS=192.168.50.10",
+            "HTTP_PORT=18080",
+            "SSH_PORT=22",
+            "",
+        )
+    )
+    result, _, command_log, _ = _run_installer(
+        tmp_path,
+        gpu="no",
+        platform="rhel",
+        previous_firewall_state=previous_state,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Keeping unchanged installer-owned firewalld rules" in result.stdout
+    assert "--remove-rich-rule" not in command_log.read_text(encoding="utf-8")
+
+
 def test_installer_rejects_broad_rhel_firewalld_rule_before_cleanup(
     tmp_path: Path,
 ) -> None:
@@ -925,6 +958,25 @@ def test_installer_allows_1023_mib_residual_gpu_usage(tmp_path: Path) -> None:
     assert "total residual GPU usage is below 1024 MiB" in result.stdout
 
 
+def test_incomplete_gpu_reset_stops_labeled_containers_before_gpu_check(
+    tmp_path: Path,
+) -> None:
+    result, release, command_log, _ = _run_installer(
+        tmp_path,
+        reset_incomplete=True,
+        gpu_memory_used=1024,
+    )
+
+    assert result.returncode != 0
+    assert (release / ".env").exists()
+    commands = command_log.read_text(encoding="utf-8")
+    assert commands.index("docker stop current-labeled") < commands.index(
+        "nvidia-smi --query-gpu=memory.used"
+    )
+    assert "docker rm -f" not in commands
+    assert "docker volume rm" not in commands
+
+
 def test_installer_blocks_1024_mib_residual_gpu_usage(tmp_path: Path) -> None:
     result, release, command_log, mock_root = _run_installer(
         tmp_path,
@@ -938,6 +990,25 @@ def test_installer_blocks_1024_mib_residual_gpu_usage(tmp_path: Path) -> None:
     assert "Total residual GPU memory: 1024 MiB" in result.stdout
     assert "Residual GPU usage is at least 1024 MiB" in result.stdout
     commands = command_log.read_text(encoding="utf-8")
+    assert "docker rm -f" not in commands
+    assert "docker volume rm" not in commands
+
+
+def test_installer_rejects_occupied_http_port_before_cleanup(tmp_path: Path) -> None:
+    with socket.socket() as listener:
+        listener.bind(("0.0.0.0", 0))
+        http_port = listener.getsockname()[1]
+        result, release, command_log, _ = _run_installer(
+            tmp_path,
+            gpu="no",
+            http_port=http_port,
+        )
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert "bind address is unavailable or port is in use" in result.stdout
+    commands = command_log.read_text(encoding="utf-8")
+    assert f"sudo python3 - 0.0.0.0 192.168.50.10 {http_port} 22" in commands
     assert "docker rm -f" not in commands
     assert "docker volume rm" not in commands
 

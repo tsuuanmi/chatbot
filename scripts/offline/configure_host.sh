@@ -166,6 +166,14 @@ remove_previous_rules() {
   previous_ssh_port="$(awk -F= '$1 == "SSH_PORT" {print $2}' <<< "$previous_state")"
   previous_zone="$(awk -F= '$1 == "FIREWALL_ZONE" {print $2}' <<< "$previous_state")"
   [[ -n "$previous_lan" && -n "$previous_http_port" ]] || return 0
+  if [[ "$previous_backend" == "firewalld" \
+    && "$previous_lan" == "$LAN_CIDR" \
+    && "$previous_http_port" == "$HTTP_PORT" \
+    && "$previous_ssh_port" == "$SSH_PORT" \
+    && "$previous_zone" == "$FIREWALL_ZONE" ]]; then
+    log "Keeping unchanged installer-owned firewalld rules"
+    return 0
+  fi
 
   case "$previous_backend" in
     ufw)

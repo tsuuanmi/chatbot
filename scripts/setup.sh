@@ -54,6 +54,20 @@ add_chatbot_volume() {
   chatbot_volumes+=("$candidate")
 }
 
+stop_incomplete_gpu_containers() {
+  local container_id compose_project
+  local existing_container_output
+  existing_container_output="$(docker ps -aq)"
+  [[ -n "$existing_container_output" ]] || return 0
+  while IFS= read -r container_id; do
+    compose_project="$(docker inspect --format '{{if .Config.Labels}}{{index .Config.Labels "com.docker.compose.project"}}{{end}}' "$container_id")"
+    if is_chatbot_project_identity "$compose_project"; then
+      log "Stopping interrupted chatbot GPU container before residual GPU validation: $container_id"
+      docker stop "$container_id" >/dev/null
+    fi
+  done <<< "$existing_container_output"
+}
+
 print_startup_diagnostics() {
   log "Service startup failed; printing status and diagnostic logs before rollback"
   compose ps >&2 || true
@@ -389,6 +403,9 @@ log "Required image tags are available for the $ACCELERATOR profile"
 step "Preflight host firewall prerequisites"
 "$INSTALL_DIR/scripts/offline/configure_host.sh" --preflight \
   "$LAN_CIDR" "$SERVER_ADDRESS" "$HTTP_PORT" "$SSH_PORT" "$NETWORK_INTERFACE"
+if [[ "$reset_incomplete_installation" == true && "$ACCELERATOR" == "gpu" ]]; then
+  stop_incomplete_gpu_containers
+fi
 
 if [[ "$ACCELERATOR" == "gpu" ]]; then
   if ! gpu_memory_output="$(
@@ -446,8 +463,7 @@ if [[ "$ACCELERATOR" == "gpu" ]]; then
 fi
 
 step "Validate the selected bind address and HTTP port"
-python3 - "$BIND_ADDRESS" "$SERVER_ADDRESS" "$HTTP_PORT" "$SSH_PORT" <<'PY'
-import errno
+sudo python3 - "$BIND_ADDRESS" "$SERVER_ADDRESS" "$HTTP_PORT" "$SSH_PORT" <<'PY'
 import ipaddress
 import socket
 import sys
@@ -477,13 +493,10 @@ with socket.socket() as listener:
     try:
         listener.bind((bind_address, http_port))
     except OSError as error:
-        if error.errno == errno.EACCES and http_port < 1024:
-            pass  # Docker may publish privileged ports through its root daemon.
-        else:
-            raise SystemExit(
-                f"bind address is unavailable or port is in use: "
-                f"{bind_address}:{http_port}: {error}"
-            ) from error
+        raise SystemExit(
+            f"bind address is unavailable or port is in use: "
+            f"{bind_address}:{http_port}: {error}"
+        ) from error
 PY
 if [[ "$HTTP_PORT" == "80" ]]; then
   CHATBOT_ORIGIN="http://$SERVER_ADDRESS"
