@@ -543,6 +543,10 @@ def test_installer_completes_with_five_clients_and_host_automation(
     assert "generic-project-volume" not in volume_removal_line
     assert "unrelated-volume" not in volume_removal_line
     assert commands.count("docker load -i ") == 1
+    assert any(
+        line.startswith("sudo ") and "iptables -m conntrack -h" in line
+        for line in commands.splitlines()
+    )
     assert f"--project-directory {release}" in commands
     assert "compose/docker-compose.offline.gpu.yml" in commands
     assert "docker update --restart=no" not in commands

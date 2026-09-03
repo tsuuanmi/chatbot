@@ -193,7 +193,7 @@ preflight_host_firewall() {
   log "Requesting administrator access for firewall and boot configuration"
   sudo -v
   iptables_path="$(command -v iptables)"
-  "$iptables_path" -m conntrack -h >/dev/null
+  sudo "$iptables_path" -m conntrack -h >/dev/null
   verify_docker_user_chain
   if [[ "$FIREWALL_BACKEND" == "firewalld" ]]; then
     FIREWALL_ZONE="$(firewalld_zone)"
