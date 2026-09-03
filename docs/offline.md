@@ -11,9 +11,9 @@ computer:
 /home/superman/workspaces/models.zip    the four GGUF model files with checksums
 ```
 
-Extract all three ZIPs into a new, empty parent directory. This prevents a previous
-release entrypoint from remaining after an overlay extraction. Together they create a normal
-repository-like directory:
+Extract all three ZIPs into the same parent directory only when it does not already
+contain `chatbot/`. This prevents a previous release entrypoint from remaining after an
+overlay extraction. Together they create a normal repository-like directory:
 
 ```text
 chatbot/
@@ -176,6 +176,10 @@ into one `chatbot/` folder:
 
 ```bash
 mkdir -p /home/superman/workspaces
+test ! -e /home/superman/workspaces/chatbot || {
+  echo "Refusing to overlay an existing chatbot directory." >&2
+  exit 1
+}
 cd /home/superman/workspaces
 unzip /media/$USER/<USB>/chatbot.zip
 unzip /media/$USER/<USB>/images.zip

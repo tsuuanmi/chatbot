@@ -120,6 +120,7 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
     setup = extract / "chatbot" / "setup.sh"
     assert setup.is_file()
     assert setup.stat().st_mode & 0o111
+    assert not (extract / "chatbot" / "install.sh").exists()
     assert any(
         line.endswith("  ./setup.sh")
         for line in (extract / "chatbot" / "SHA256SUMS")
