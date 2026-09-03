@@ -614,6 +614,21 @@ def test_installer_rejects_missing_docker_user_before_cleanup(tmp_path: Path) ->
     assert "docker rm -f" not in commands
 
 
+def test_installer_preserves_incomplete_state_when_docker_user_is_missing(
+    tmp_path: Path,
+) -> None:
+    result, release, command_log, _ = _run_installer(
+        tmp_path, docker_user_chain=False, reset_incomplete=True
+    )
+
+    assert result.returncode != 0
+    assert (release / ".env").exists()
+    assert "required DOCKER-USER firewall chain" in result.stdout
+    commands = command_log.read_text(encoding="utf-8")
+    assert "docker compose --project-directory" not in commands
+    assert "docker rm -f" not in commands
+
+
 @pytest.mark.parametrize("platform", ["ubuntu", "rhel"])
 def test_installer_uses_cpu_without_nvidia_support(
     tmp_path: Path, platform: str

@@ -22,6 +22,7 @@ INSTALL_MARKER="$INSTALL_DIR/config/.installed"
 INSTALL_LOG="$INSTALL_DIR/install.log"
 installation_started=false
 installation_complete=false
+reset_incomplete_installation=false
 step_number=0
 current_step="initialization"
 total_steps=15
@@ -222,7 +223,7 @@ if [[ "$MODE" == "offline" ]]; then
       echo "Re-run with RESET_INCOMPLETE_INSTALL=YES to reset and retry." >&2
       exit 1
     }
-    cleanup_incomplete_installation
+    reset_incomplete_installation=true
   fi
   [[ -f "$INSTALL_DIR/SHA256SUMS" \
     && -f "$INSTALL_DIR/release-manifest.json" \
@@ -388,6 +389,9 @@ log "Required image tags are available for the $ACCELERATOR profile"
 step "Preflight host firewall prerequisites"
 "$INSTALL_DIR/scripts/offline/configure_host.sh" --preflight \
   "$LAN_CIDR" "$SERVER_ADDRESS" "$HTTP_PORT" "$SSH_PORT" "$NETWORK_INTERFACE"
+if [[ "$reset_incomplete_installation" == true ]]; then
+  cleanup_incomplete_installation
+fi
 
 step "Remove existing chatbot containers and volumes"
 existing_container_output="$(docker ps -aq)"
