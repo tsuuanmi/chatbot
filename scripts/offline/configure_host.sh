@@ -25,6 +25,7 @@ FIREWALL_PROGRAM="/usr/local/sbin/chatbot-firewall"
 FIREWALL_UNIT="/etc/systemd/system/chatbot-firewall.service"
 FIREWALL_STATE="/etc/chatbot/firewall.conf"
 FIREWALL_ZONE=""
+iptables_path="/usr/sbin/iptables"
 
 log() {
   printf '[host %(%Y-%m-%dT%H:%M:%S%z)T] %s\n' -1 "$*"
@@ -35,12 +36,16 @@ if [[ "$FIREWALL_BACKEND" == "firewalld" ]]; then
 else
   firewall_command="$FIREWALL_BACKEND"
 fi
-for command in awk install iptables mktemp python3 sudo systemctl "$firewall_command"; do
+for command in awk install mktemp python3 sudo systemctl "$firewall_command"; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "Required host-setup command not found: $command" >&2
     exit 1
   }
 done
+[[ -x "$iptables_path" ]] || {
+  echo "Required system command not found: $iptables_path" >&2
+  exit 1
+}
 
 python3 - "$LAN_CIDR" "$SERVER_ADDRESS" "$HTTP_PORT" "$SSH_PORT" <<'PY'
 import ipaddress
@@ -120,12 +125,16 @@ PY
 }
 
 verify_docker_user_chain() {
+  local first_forward_rule
   sudo "$iptables_path" -S DOCKER-USER >/dev/null || {
     echo "Docker does not provide the required DOCKER-USER firewall chain." >&2
     return 1
   }
-  sudo "$iptables_path" -C FORWARD -j DOCKER-USER >/dev/null || {
-    echo "Docker does not route forwarded traffic through the DOCKER-USER firewall chain." >&2
+  first_forward_rule="$(
+    sudo "$iptables_path" -S FORWARD | awk '$1 == "-A" && $2 == "FORWARD" { print; exit }' || true
+  )"
+  [[ "$first_forward_rule" == "-A FORWARD -j DOCKER-USER" ]] || {
+    echo "Docker does not route forwarded traffic through DOCKER-USER before other FORWARD rules." >&2
     return 1
   }
 }
@@ -192,8 +201,10 @@ remove_previous_rules() {
 preflight_host_firewall() {
   log "Requesting administrator access for firewall and boot configuration"
   sudo -v
-  iptables_path="$(command -v iptables)"
-  sudo "$iptables_path" -m conntrack -h >/dev/null
+  if ! sudo "$iptables_path" -m conntrack -h >/dev/null; then
+    echo "Docker firewall conntrack matching is unavailable." >&2
+    return 1
+  fi
   verify_docker_user_chain
   if [[ "$FIREWALL_BACKEND" == "firewalld" ]]; then
     FIREWALL_ZONE="$(firewalld_zone)"

@@ -97,7 +97,7 @@ Supported target profiles:
 - Intel i7-9700K class CPU or better and 32 GB RAM;
 - at least 20 GB free SSD space plus backup space, subject to final dual-image archive measurement;
 - rootful Docker Engine with the Compose plugin that routes IPv4 `FORWARD` traffic
-  through its `DOCKER-USER` iptables chain; Podman and Docker firewall backends
+  first through its `DOCKER-USER` iptables chain; Podman and Docker firewall backends
   without that path are not supported;
 - Ubuntu: UFW, iptables, systemd, and sudo access for automatic host security/startup setup;
 - RHEL: firewalld, iptables, systemd, SELinux tools, and sudo access. SELinux must remain

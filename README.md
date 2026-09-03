@@ -181,7 +181,7 @@ type.
 
 Supported offline targets are Ubuntu 22.04 LTS, Ubuntu 26.04 LTS, and Red Hat
 Enterprise Linux 8.10, all with rootful Docker Engine and the Compose plugin; Podman
-is not supported. Docker must route IPv4 `FORWARD` traffic through its
+is not supported. Docker must route IPv4 `FORWARD` traffic first through its
 `DOCKER-USER` iptables chain for LAN port isolation. RHEL keeps SELinux Enforcing and uses firewalld.
 
 On the dedicated target computer, extract all three ZIPs into a new, empty directory:

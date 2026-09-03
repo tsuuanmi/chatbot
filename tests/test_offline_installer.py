@@ -305,6 +305,8 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
             state = {"DOCKER-USER": []}
             if os.environ["MOCK_DOCKER_USER_FORWARD"] == "1":
                 state["FORWARD"] = [["-j", "DOCKER-USER"]]
+                if os.environ["MOCK_DOCKER_USER_FORWARD_FIRST"] == "0":
+                    state["FORWARD"].insert(0, ["-j", "ACCEPT"])
         else:
             state = {}
         action = args[0]
@@ -312,9 +314,12 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
         changed = False
         status = 0
         if action == "-m":
-            pass
+            status = 42 if os.environ["MOCK_CONNTRACK_FAIL"] == "1" else 0
         elif action == "-S":
             status = 0 if chain in state else 1
+            if status == 0:
+                for rule in state[chain]:
+                    print("-A", chain, *rule)
         elif action == "-N":
             if chain in state:
                 status = 1
@@ -377,6 +382,7 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
                 if "-m" in args:
                     destination.chmod(int(args[args.index("-m") + 1], 8))
         elif command == "iptables":
+            args[0] = str(Path(__file__).with_name("iptables"))
             raise SystemExit(subprocess.run(args, check=False).returncode)
         elif command == "firewall-cmd":
             if any(value.startswith("--get-zone-of-interface=") for value in args):
@@ -389,8 +395,17 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
                 print(os.environ.get("MOCK_BROAD_FIREWALL_RULE", ""))
         elif command == "systemctl" and "restart" in args:
             firewall = root / "usr/local/sbin/chatbot-firewall"
+            test_firewall = root / "usr/local/sbin/chatbot-firewall-test"
+            test_firewall.write_text(
+                firewall.read_text(encoding="utf-8").replace(
+                    "IPTABLES='/usr/sbin/iptables'",
+                    f"IPTABLES='{Path(__file__).with_name('iptables')}'",
+                ),
+                encoding="utf-8",
+            )
+            test_firewall.chmod(0o755)
             for _ in range(2):
-                subprocess.run([firewall], check=True)
+                subprocess.run([test_firewall], check=True)
         """,
     )
     for command in ("systemctl", "ufw", "firewall-cmd"):
@@ -432,6 +447,8 @@ def _run_installer(
     platform: str = "ubuntu",
     docker_user_chain: bool = True,
     docker_user_forward: bool = True,
+    docker_user_forward_first: bool = True,
+    conntrack_fails: bool = False,
     broad_firewall_rule: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
     release = _prepare_release(tmp_path)
@@ -464,6 +481,8 @@ def _run_installer(
             "MOCK_DOCKER_PS_FAIL": "1" if docker_ps_fails else "0",
             "MOCK_DOCKER_USER_CHAIN": "1" if docker_user_chain else "0",
             "MOCK_DOCKER_USER_FORWARD": "1" if docker_user_forward else "0",
+            "MOCK_DOCKER_USER_FORWARD_FIRST": "1" if docker_user_forward_first else "0",
+            "MOCK_CONNTRACK_FAIL": "1" if conntrack_fails else "0",
             "MOCK_GPU_MEMORY_USED": str(gpu_memory_used),
             "MOCK_GPU_MEMORY_TOTAL": str(gpu_memory_total),
             "MOCK_GPU_PROCESSES": gpu_processes,
@@ -544,7 +563,7 @@ def test_installer_completes_with_five_clients_and_host_automation(
     assert "unrelated-volume" not in volume_removal_line
     assert commands.count("docker load -i ") == 1
     assert any(
-        line.startswith("sudo ") and "iptables -m conntrack -h" in line
+        line == "sudo /usr/sbin/iptables -m conntrack -h"
         for line in commands.splitlines()
     )
     assert f"--project-directory {release}" in commands
@@ -611,6 +630,17 @@ def test_installer_accepts_ubuntu_2204(tmp_path: Path) -> None:
     assert "docker rm -f" in command_log.read_text(encoding="utf-8")
 
 
+def test_installer_rejects_unavailable_conntrack_before_cleanup(tmp_path: Path) -> None:
+    result, release, command_log, _ = _run_installer(tmp_path, conntrack_fails=True)
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert "Docker firewall conntrack matching is unavailable." in result.stdout
+    commands = command_log.read_text(encoding="utf-8")
+    assert "iptables -m conntrack -h" in commands
+    assert "docker rm -f" not in commands
+
+
 def test_installer_rejects_missing_docker_user_before_cleanup(tmp_path: Path) -> None:
     result, release, command_log, _ = _run_installer(tmp_path, docker_user_chain=False)
 
@@ -631,7 +661,22 @@ def test_installer_rejects_detached_docker_user_before_cleanup(tmp_path: Path) -
     assert not (release / ".env").exists()
     assert "does not route forwarded traffic" in result.stdout
     commands = command_log.read_text(encoding="utf-8")
-    assert "iptables -C FORWARD -j DOCKER-USER" in commands
+    assert "iptables -S FORWARD" in commands
+    assert "docker rm -f" not in commands
+
+
+def test_installer_rejects_nonleading_docker_user_before_cleanup(
+    tmp_path: Path,
+) -> None:
+    result, release, command_log, _ = _run_installer(
+        tmp_path, docker_user_forward_first=False
+    )
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert "before other FORWARD rules" in result.stdout
+    commands = command_log.read_text(encoding="utf-8")
+    assert "iptables -S FORWARD" in commands
     assert "docker rm -f" not in commands
 
 
