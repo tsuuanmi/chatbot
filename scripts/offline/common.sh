@@ -9,7 +9,7 @@ OFFLINE_GPU_COMPOSE="$OFFLINE_ROOT/compose/docker-compose.offline.gpu.yml"
 source "$OFFLINE_ROOT/scripts/accelerator.sh"
 project_digest="$(printf '%s' "$OFFLINE_ROOT" | sha256sum)"
 project_digest="${project_digest%% *}"
-OFFLINE_PROJECT_NAME="chatbot-bca-${project_digest:0:12}"
+OFFLINE_PROJECT_NAME="chatbot-${project_digest:0:12}"
 
 offline_log() {
   printf '[offline %(%Y-%m-%dT%H:%M:%S%z)T] %s\n' -1 "$*"

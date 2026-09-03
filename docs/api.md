@@ -63,7 +63,7 @@ Response:
       "source": {
         "id": "internal-figure-faq",
         "title": "Bộ câu hỏi đáp hình minh họa giám định ADN",
-        "authority": "BCA - nội dung dự án",
+        "authority": "Chatbot - nội dung dự án",
         "version": "1.0",
         "page_or_section": "pie1",
         "approval_status": "approved"

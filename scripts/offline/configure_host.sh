@@ -21,9 +21,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/host_platform.sh"
 HOST_PLATFORM="$(host_platform)"
 FIREWALL_BACKEND="$(host_firewall_backend "$HOST_PLATFORM")"
-FIREWALL_PROGRAM="/usr/local/sbin/chatbot-bca-firewall"
-FIREWALL_UNIT="/etc/systemd/system/chatbot-bca-firewall.service"
-FIREWALL_STATE="/etc/chatbot-bca/firewall.conf"
+FIREWALL_PROGRAM="/usr/local/sbin/chatbot-firewall"
+FIREWALL_UNIT="/etc/systemd/system/chatbot-firewall.service"
+FIREWALL_STATE="/etc/chatbot/firewall.conf"
 FIREWALL_ZONE=""
 
 log() {
@@ -130,7 +130,7 @@ SERVER_ADDRESS=$SERVER_ADDRESS
 HTTP_PORT=$HTTP_PORT
 SSH_PORT=$SSH_PORT
 EOF
-  sudo install -o root -g root -m 0755 -d /etc/chatbot-bca
+  sudo install -o root -g root -m 0755 -d /etc/chatbot
   sudo install -o root -g root -m 0600 "$state_tmp" "$FIREWALL_STATE"
   rm -f "$state_tmp"
 }
@@ -265,7 +265,7 @@ cat > "$firewall_program_tmp" <<EOF
 #!/bin/sh
 set -eu
 IPTABLES='$iptables_path'
-CHAIN='CHATBOT_BCA'
+CHAIN='CHATBOT'
 LAN_CIDR='$LAN_CIDR'
 HTTP_PORT='$HTTP_PORT'
 PROXY_CONTAINER_PORT='80'
@@ -294,8 +294,8 @@ PartOf=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/chatbot-bca-firewall
-ExecReload=/usr/local/sbin/chatbot-bca-firewall
+ExecStart=/usr/local/sbin/chatbot-firewall
+ExecReload=/usr/local/sbin/chatbot-firewall
 RemainAfterExit=yes
 
 [Install]
@@ -307,14 +307,14 @@ sudo install -o root -g root -m 0755 "$firewall_program_tmp" "$FIREWALL_PROGRAM"
 sudo install -o root -g root -m 0644 "$firewall_unit_tmp" "$FIREWALL_UNIT"
 sudo systemctl enable docker.service
 sudo systemctl daemon-reload
-sudo systemctl enable chatbot-bca-firewall.service
-sudo systemctl restart chatbot-bca-firewall.service
-sudo systemctl is-enabled --quiet chatbot-bca-firewall.service
-sudo systemctl is-active --quiet chatbot-bca-firewall.service
+sudo systemctl enable chatbot-firewall.service
+sudo systemctl restart chatbot-firewall.service
+sudo systemctl is-enabled --quiet chatbot-firewall.service
+sudo systemctl is-active --quiet chatbot-firewall.service
 
 log "Host firewall is active for $SERVER_ADDRESS"
 case "$FIREWALL_BACKEND" in
   ufw) sudo ufw status verbose ;;
   firewalld) sudo firewall-cmd --zone="$FIREWALL_ZONE" --list-rich-rules ;;
 esac
-sudo "$iptables_path" -L CHATBOT_BCA -n --line-numbers
+sudo "$iptables_path" -L CHATBOT -n --line-numbers

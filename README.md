@@ -158,14 +158,14 @@ curl -N -X POST http://localhost:8080/api/v1/chat/stream \
 On the Internet-connected preparation computer:
 
 ```bash
-cd /home/superman/workspaces/chatbotbca
+cd /home/superman/workspaces/chatbot
 make prepare
 ```
 
 Output:
 
 ```text
-/home/superman/workspaces/chatbot_bca.zip   committed Git HEAD source and installer
+/home/superman/workspaces/chatbot.zip   committed Git HEAD source and installer
 /home/superman/workspaces/images.zip    exported Docker runtime images
 /home/superman/workspaces/models.zip    the four GGUF model files with checksums
 ```
@@ -173,7 +173,7 @@ Output:
 Preparation requires a clean Git working tree and the four GGUF files present in
 `models/`. Application source is read from `git archive HEAD`, and the release
 manifest records that commit. The GGUF models are packaged into `models.zip` with a
-`SHA256SUMS` file; they are not part of `chatbot_bca.zip` or `images.zip`. Python
+`SHA256SUMS` file; they are not part of `chatbot.zip` or `images.zip`. Python
 runtime dependencies, including those used to index documents and figures, are already
 installed in the application image inside `images.zip`. The image archive includes
 both pinned CPU and CUDA llama.cpp servers so one release can install on either host
@@ -187,19 +187,21 @@ On the dedicated target computer, extract all three ZIPs into the same directory
 
 ```bash
 cd /home/superman/workspaces
-unzip /path/to/chatbot_bca.zip
+unzip /path/to/chatbot.zip
 unzip /path/to/images.zip
 unzip /path/to/models.zip
-cd chatbotbca
+cd chatbot
 ./install.sh --gpu no          # CPU profile
 # or: ./install.sh --gpu yes   # require the NVIDIA GPU profile
 ```
 
-The installer detects the primary LAN IPv4 address and subnet, removes recognized
-legacy chatbot containers and volumes for a fresh database while preserving
-unrelated Docker resources, images, and GGUF models, generates five client credentials,
-configures LAN-only host firewall rules (UFW on Ubuntu, firewalld on RHEL) and Docker
-port isolation, and enables Docker boot startup. Numbered progress is shown on screen and
+The installer detects the primary LAN IPv4 address and subnet, removes only current
+chatbot containers and volumes for a fresh database while preserving unrelated Docker
+resources, images, and GGUF models, generates five client credentials. Resources from a
+previous naming scheme require the explicit migration utility documented in
+`docs/offline.md`; the installer does not guess them. It configures LAN-only host
+firewall rules (UFW on Ubuntu, firewalld on RHEL) and Docker port isolation, and enables
+Docker boot startup. Numbered progress is shown on screen and
 saved to `install.log`;
 figure descriptions report per-figure progress during the first index.
 

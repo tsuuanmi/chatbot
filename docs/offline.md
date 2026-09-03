@@ -6,7 +6,7 @@ The final deliverable is three files created on an Internet-connected preparatio
 computer:
 
 ```text
-/home/superman/workspaces/chatbot_bca.zip   committed Git HEAD source and installer
+/home/superman/workspaces/chatbot.zip   committed Git HEAD source and installer
 /home/superman/workspaces/images.zip    exported Docker runtime images
 /home/superman/workspaces/models.zip    the four GGUF model files with checksums
 ```
@@ -15,7 +15,7 @@ Extract all three ZIPs into the same parent directory. Together they create a no
 repository-like directory:
 
 ```text
-chatbotbca/
+chatbot/
 ├── src/                         application source
 ├── docs/                        operator and API documentation
 ├── config/                      static templates and generated secrets
@@ -35,17 +35,17 @@ chatbotbca/
 └── install.sh                   generated one-command target entry point
 ```
 
-`chatbot_bca.zip` contains source read from the committed `git archive HEAD`, plus
+`chatbot.zip` contains source read from the committed `git archive HEAD`, plus
 the generated release manifest, checksums, and root installer. The `compose/`
 directory is the only authoritative location for Compose definitions; the installer
 and lifecycle scripts select the needed base and optional GPU overlay directly, without
 copying or generating a root Compose file. `images.zip` contains
-only `chatbotbca/images/runtime-images.tar`. `models.zip` contains
-`chatbotbca/models/` with the four GGUF files and a `SHA256SUMS` file. All three
+only `chatbot/images/runtime-images.tar`. `models.zip` contains
+`chatbot/models/` with the four GGUF files and a `SHA256SUMS` file. All three
 ZIPs exclude Git metadata, secrets, virtual environments, caches, runtime databases,
 and backups.
 
-Extracting `models.zip` places these four files in `chatbotbca/models/`:
+Extracting `models.zip` places these four files in `chatbot/models/`:
 
 ```text
 gemma-4-E2B-it-Q4_K_M.gguf
@@ -102,9 +102,10 @@ Supported target profiles:
   `ip`, `awk`, and `tee`;
 - for GPU mode only: NVIDIA GTX 1660 Super 6 GB or better, NVIDIA driver, NVIDIA
   Container Toolkit, and `nvidia-smi`;
-- a dedicated chatbot host: installation removes recognized legacy chatbot
-  containers and their attached/orphaned Docker volumes for a fresh database; unrelated
-  containers and volumes, Docker images, GGUF models, and source files are preserved;
+- a dedicated chatbot host: installation removes only the current chatbot containers
+  and Compose-labeled volumes for a fresh database; resources from a previous naming
+  scheme require the isolated migration command in section 6.1. Unrelated containers
+  and volumes, Docker images, GGUF models, and source files are preserved;
 - a reserved/static LAN IPv4 address is recommended so client URLs remain stable.
 
 Check before transfer:
@@ -131,7 +132,7 @@ host requirement.
 On the preparation computer:
 
 ```bash
-cd /home/superman/workspaces/chatbotbca
+cd /home/superman/workspaces/chatbot
 make prepare
 ```
 
@@ -150,11 +151,11 @@ The builder:
    already-published outputs if publishing a later one fails.
 
 Commit and review every intended change before running `make prepare`. There is no
-dirty-tree override because `chatbot_bca.zip` must identify one exact Git commit.
+dirty-tree override because `chatbot.zip` must identify one exact Git commit.
 Remove all three old outputs before rebuilding:
 
 ```bash
-rm -f /home/superman/workspaces/chatbot_bca.zip \
+rm -f /home/superman/workspaces/chatbot.zip \
       /home/superman/workspaces/images.zip \
       /home/superman/workspaces/models.zip
 make prepare
@@ -162,31 +163,31 @@ make prepare
 
 ## 5. Transfer and extract
 
-Use exFAT or ext4 media, not FAT32. Copy `chatbot_bca.zip`, `images.zip`, and
+Use exFAT or ext4 media, not FAT32. Copy `chatbot.zip`, `images.zip`, and
 `models.zip`.
 
 On the target, extract all three ZIPs from the same parent directory so they merge
-into one `chatbotbca/` folder:
+into one `chatbot/` folder:
 
 ```bash
 mkdir -p /home/superman/workspaces
 cd /home/superman/workspaces
-unzip /media/$USER/<USB>/chatbot_bca.zip
+unzip /media/$USER/<USB>/chatbot.zip
 unzip /media/$USER/<USB>/images.zip
 unzip /media/$USER/<USB>/models.zip
-cd chatbotbca
+cd chatbot
 ```
 
 The result should be:
 
 ```text
-/home/superman/workspaces/chatbotbca
+/home/superman/workspaces/chatbot
 ```
 
 The four GGUF model files and their `SHA256SUMS` are placed in:
 
 ```text
-/home/superman/workspaces/chatbotbca/models
+/home/superman/workspaces/chatbot/models
 ```
 
 ## 6. Run the installer
@@ -202,7 +203,7 @@ than requiring RFC1918 addressing. Verify that this subnet is physically isolate
 Install from a local target terminal so the sudo prompt is visible:
 
 ```bash
-cd /home/superman/workspaces/chatbotbca
+cd /home/superman/workspaces/chatbot
 chmod +x install.sh
 ./install.sh --gpu no             # CPU profile, no NVIDIA requirement
 # or: ./install.sh --gpu yes      # require a verified NVIDIA GPU profile
@@ -244,8 +245,8 @@ The installer performs these actions:
 3. checks four model filenames and their `models/SHA256SUMS` checksums, release checksums, free space, Docker, and the selected profile;
 4. loads images, confirms CPU and CUDA image tags, and validates CUDA container access and at least 6 GiB on every NVIDIA GPU before cleanup;
 5. preflights the selected host firewall backend, SELinux on RHEL, and conntrack support
-   before deleting legacy data;
-6. force-removes containers identified by legacy chatbot names or Compose labels and
+   before deleting current chatbot data;
+6. force-removes containers identified by current chatbot names or Compose labels and
    deletes their attached/orphaned volumes, while preserving unrelated Docker resources;
 7. for GPU only, requires successful NVIDIA total-memory and process queries, warns
    and continues when total residual use is below 1024 MiB, and stops at 1024 MiB or more;
@@ -261,13 +262,13 @@ The installer performs these actions:
 
 After successful setup, `install.sh` writes `config/.installed` and refuses to run
 again; use the lifecycle commands in section 9. A normal installation failure rolls
-back generated chatbot containers, project volumes, secrets, and configuration. Legacy
+back generated chatbot containers, project volumes, secrets, and configuration. Selected
 chatbot containers and volumes are intentionally not restored, ensuring that a retry in
 the same folder starts with a fresh PostgreSQL database. Docker images and model files
 remain available, and fail-closed host firewall rules may remain active. The installer
 records its intended firewall state before changing host rules, so
 `RESET_INCOMPLETE_INSTALL=YES` reconciles those rules on retry. The Docker `DOCKER-USER`
-chain is verified only after backend containers start; if that final check fails, legacy
+chain is verified only after backend containers start; if that final check fails, selected
 chatbot data is still not restored. If an abrupt power loss leaves `.env` without the
 completion marker,
 reset and retry with:
@@ -275,6 +276,26 @@ reset and retry with:
 ```bash
 RESET_INCOMPLETE_INSTALL=YES ./install.sh --gpu no
 ```
+
+### 6.1. Migrate resources from an earlier naming scheme
+
+The chatbot-only release does not guess or automatically delete resources from an
+older naming scheme. Before reusing a host, list the exact containers and volumes that
+belong to the previous deployment, review the list, and pass only those resources to
+the isolated migration command:
+
+```bash
+docker ps -a --format '{{.Names}}'
+docker volume ls -q
+./scripts/offline/migrate_resources.sh --confirm \
+  --container <previous-container-name-or-id> \
+  --volume <previous-volume-name>
+```
+
+Repeat the `--container` and `--volume` options as needed. The command is not called by
+`install.sh`, accepts no wildcards, and requires `--confirm`. Handle any previous host
+firewall unit, program, state file, or iptables chain separately with the host's
+administration tools before enabling the new chatbot firewall service.
 
 ## 7. Generated secrets and client files
 
@@ -297,7 +318,7 @@ computer. Never distribute `.env` or `config/auth/api_keys.json`.
 Create, rotate, or remove later identities with the existing management command:
 
 ```bash
-cd /home/superman/workspaces/chatbotbca
+cd /home/superman/workspaces/chatbot
 ./scripts/offline/manage_client.sh add client-06
 ./scripts/offline/manage_client.sh remove client-06
 ```
@@ -359,7 +380,7 @@ CORS affects browser frontends, not Postman or curl.
 Run from the extracted directory:
 
 ```bash
-cd /home/superman/workspaces/chatbotbca
+cd /home/superman/workspaces/chatbot
 
 make status MODE=offline
 make start MODE=offline
@@ -405,8 +426,8 @@ unrelated zones. Its preflight rejects broad accepting rich rules for the select
 HTTP ports. RHEL requires SELinux `Enforcing`; the Compose `:z` and `:Z` bind-mount labels
 grant containers only the necessary access.
 
-Because Docker can bypass host firewall input rules, `chatbot-bca-firewall.service`
-reapplies an idempotent `CHATBOT_BCA` chain under `DOCKER-USER` after Docker starts. The
+Because Docker can bypass host firewall input rules, `chatbot-firewall.service`
+reapplies an idempotent `CHATBOT` chain under `DOCKER-USER` after Docker starts. The
 chain matches both the configured original host HTTP port and Nginx's post-DNAT container
 port 80, so custom host ports remain restricted without affecting unrelated Docker
 mappings. Inspect the active host firewall, Docker chain, and boot unit with:
@@ -420,8 +441,8 @@ getenforce
 sudo firewall-cmd --list-all-zones
 
 # Both targets
-sudo iptables -L CHATBOT_BCA -n --line-numbers
-sudo systemctl status chatbot-bca-firewall.service
+sudo iptables -L CHATBOT -n --line-numbers
+sudo systemctl status chatbot-firewall.service
 ```
 
 Verify:
@@ -462,7 +483,7 @@ EmbeddingGemma requires a 2048-token context, batch, and micro-batch to classify
 retrieve against prompts of that length; lowering its micro-batch can cause classifier
 and semantic-retrieval failures. This 16-layer profile was selected for the dedicated
 6 GB target while retaining an 8192-token LLM context. If the target still reports CUDA
-out-of-memory after the installer has removed legacy chatbot containers, first reduce
+out-of-memory after the installer has removed selected chatbot containers, first reduce
 `LLAMA_CTX_SIZE=4096`. Keep one parallel generation slot until
 target measurements show safe VRAM headroom. Requests
 from five client computers may arrive together; they wait up to 15 minutes and are
@@ -475,7 +496,7 @@ processed one at a time to avoid exhausting the 6 GB GPU.
 Extract `models.zip` so the exact reported filename lands in:
 
 ```text
-/home/superman/workspaces/chatbotbca/models
+/home/superman/workspaces/chatbot/models
 ```
 
 The installer verifies the four filenames and their `models/SHA256SUMS` checksums; it
@@ -490,9 +511,11 @@ Initial multimodal descriptions can take several minutes each on a 6 GB GPU.
 
 ### Chatbot container is unhealthy
 
-The installer prints chatbot and dependency logs before rollback. Legacy chatbot
+The installer prints chatbot and dependency logs before rollback. Selected chatbot
 volumes are removed before configuration, preventing an old PostgreSQL volume and new
-password from being mixed. Correct the reported cause, then rerun in the same folder. On
+password from being mixed. Resources from an earlier naming scheme are not selected;
+use section 6.1 when a manual migration is needed. Correct the reported cause, then
+rerun in the same folder. On
 RHEL, keep SELinux
 `Enforcing`; inspect recent denials with `sudo ausearch -m AVC -ts recent` rather than
 disabling it.
@@ -506,10 +529,11 @@ substantial process safely, and rerun. A failed total-memory or process query al
 installation; the installer never kills host processes or silently assumes that
 measurement succeeded.
 
-Only containers identified by supported legacy chatbot names or Compose labels are
-removed. Their Docker volumes are also deleted to prevent stale PostgreSQL credentials
-from breaking API startup. Unrelated containers and volumes continue unchanged; Docker
-images, GGUF models, and source files are preserved.
+Only containers identified by current chatbot names or Compose labels are removed.
+Their Docker volumes are also deleted to prevent stale PostgreSQL credentials from
+breaking API startup. Unrelated containers and volumes continue unchanged; Docker
+images, GGUF models, and source files are preserved. Resources from an earlier naming
+scheme require the explicit, isolated migration command in section 6.1.
 
 ### HTTP 401
 
@@ -556,17 +580,17 @@ firewall, reboot, and backup/restore tests.
 
 With target WAN access disconnected:
 
-- extract `chatbot_bca.zip`, `images.zip`, and `models.zip` under `/home/superman/workspaces`;
+- extract `chatbot.zip`, `images.zip`, and `models.zip` under `/home/superman/workspaces`;
 - reserve the target's LAN IPv4 address and confirm the installer selects its CIDR;
 - run `./install.sh --gpu yes` (or `--gpu no`) successfully and confirm five credential files are generated;
-- confirm legacy chatbot containers were removed, unrelated containers remain, and every new service is healthy;
+- confirm selected chatbot containers were removed, unrelated containers remain, and every new service is healthy; migrate any earlier-naming resources separately;
 - confirm authenticated `/api/v1/ready` reports `ready`;
 - test prepared, generated, figure, streaming, and delete paths;
 - verify invalid keys return HTTP 401;
 - verify a second client cannot access the first client's conversation;
 - check VRAM during generated and figure requests;
 - verify UFW on Ubuntu or firewalld plus SELinux `Enforcing` on RHEL, then verify
-  `CHATBOT_BCA` and `chatbot-bca-firewall.service` are active;
+  `CHATBOT` and `chatbot-firewall.service` are active;
 - reboot without Internet and confirm the API becomes ready without a manual start command;
 - test backup and restore;
 - confirm untrusted networks and WAN cannot reach the configured host HTTP port.

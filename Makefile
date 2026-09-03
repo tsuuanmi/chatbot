@@ -5,7 +5,7 @@ PYTEST := .venv/bin/pytest
 RUFF := .venv/bin/ruff
 MODE ?= online
 ACCELERATOR ?= auto
-CHATBOT_OUTPUT ?= /home/superman/workspaces/chatbot_bca.zip
+CHATBOT_OUTPUT ?= /home/superman/workspaces/chatbot.zip
 IMAGES_OUTPUT ?= /home/superman/workspaces/images.zip
 MODELS_OUTPUT ?= /home/superman/workspaces/models.zip
 
@@ -20,7 +20,7 @@ help:
 	@echo "  make stop [MODE=...]       Stop the selected stack"
 	@echo "  make status [MODE=...]     Show the selected stack status"
 	@echo "  make index [MODE=...]      Rebuild the selected stack indexes"
-	@echo "  make prepare               Create chatbot_bca.zip, images.zip, and models.zip from Git HEAD"
+	@echo "  make prepare               Create chatbot.zip, images.zip, and models.zip from Git HEAD"
 	@echo "  make clean                 Remove generated Python caches"
 	@echo
 	@echo "Variables: MODE=online|offline ACCELERATOR=auto|cpu|gpu"

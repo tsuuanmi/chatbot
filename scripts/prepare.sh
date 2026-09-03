@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CHATBOT_OUTPUT="${1:-$(dirname "$ROOT")/chatbot_bca.zip}"
+CHATBOT_OUTPUT="${1:-$(dirname "$ROOT")/chatbot.zip}"
 IMAGES_OUTPUT="${2:-$(dirname "$ROOT")/images.zip}"
 MODELS_OUTPUT="${3:-$(dirname "$ROOT")/models.zip}"
 [[ "$CHATBOT_OUTPUT" = /* ]] || CHATBOT_OUTPUT="$ROOT/$CHATBOT_OUTPUT"
@@ -13,11 +13,11 @@ LLAMA_GPU_SOURCE="ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:b2497f8834f5ecb4
 POSTGRES_SOURCE="postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
 CHROMA_SOURCE="chromadb/chroma:latest@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6"
 NGINX_SOURCE="nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
-LLAMA_CPU_IMAGE="chatbot-bca/llama.cpp-server-cpu:991cf50e9eb"
-LLAMA_GPU_IMAGE="chatbot-bca/llama.cpp-server-cuda:b2497f8834f5"
-POSTGRES_IMAGE="chatbot-bca/postgres:57c72fd2a128"
-CHROMA_IMAGE="chatbot-bca/chromadb:1e0b73a187a2"
-NGINX_IMAGE="chatbot-bca/nginx:65645c7bb6a0"
+LLAMA_CPU_IMAGE="chatbot/llama.cpp-server-cpu:991cf50e9eb"
+LLAMA_GPU_IMAGE="chatbot/llama.cpp-server-cuda:b2497f8834f5"
+POSTGRES_IMAGE="chatbot/postgres:57c72fd2a128"
+CHROMA_IMAGE="chatbot/chromadb:1e0b73a187a2"
+NGINX_IMAGE="chatbot/nginx:65645c7bb6a0"
 MODEL_NAMES=(
   gemma-4-E2B-it-Q4_K_M.gguf
   mmproj-gemma-4-E2B-it-bf16.gguf
@@ -38,11 +38,11 @@ done
 git -C "$ROOT" rev-parse --verify HEAD >/dev/null
 if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
   echo "Refusing to prepare a release from a dirty Git working tree." >&2
-  echo "Commit the intended source so chatbot_bca.zip can contain exactly Git HEAD." >&2
+  echo "Commit the intended source so chatbot.zip can contain exactly Git HEAD." >&2
   exit 1
 fi
 source_commit="$(git -C "$ROOT" rev-parse HEAD)"
-APP_IMAGE="chatbot-bca:${source_commit:0:12}"
+APP_IMAGE="chatbot:${source_commit:0:12}"
 for model in "${MODEL_NAMES[@]}"; do
   [[ -f "$ROOT/models/$model" ]] || {
     echo "Missing model: $ROOT/models/$model" >&2
@@ -65,8 +65,8 @@ for output in "$CHATBOT_OUTPUT" "$IMAGES_OUTPUT" "$MODELS_OUTPUT"; do
 done
 
 stage_parent="$(mktemp -d)"
-stage="$stage_parent/chatbotbca"
-chatbot_tmp="$(dirname "$CHATBOT_OUTPUT")/.chatbot_bca.$$.zip"
+stage="$stage_parent/chatbot"
+chatbot_tmp="$(dirname "$CHATBOT_OUTPUT")/.chatbot.$$.zip"
 images_tmp="$(dirname "$IMAGES_OUTPUT")/.images.$$.zip"
 models_tmp="$(dirname "$MODELS_OUTPUT")/.models.$$.zip"
 chatbot_published=false
@@ -151,9 +151,9 @@ PY
 
 (
   cd "$stage_parent"
-  zip -q -0 -r "$chatbot_tmp" chatbotbca -x 'chatbotbca/images/*' 'chatbotbca/models/*'
-  zip -q -0 -r "$images_tmp" chatbotbca/images
-  zip -q -0 -r "$models_tmp" chatbotbca/models
+  zip -q -0 -r "$chatbot_tmp" chatbot -x 'chatbot/images/*' 'chatbot/models/*'
+  zip -q -0 -r "$images_tmp" chatbot/images
+  zip -q -0 -r "$models_tmp" chatbot/models
 )
 unzip -tq "$chatbot_tmp"
 unzip -tq "$images_tmp"

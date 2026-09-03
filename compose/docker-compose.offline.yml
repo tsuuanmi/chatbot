@@ -111,7 +111,7 @@ services:
     networks: [backend]
 
   postgres:
-    image: chatbot-bca/postgres:57c72fd2a128
+    image: chatbot/postgres:57c72fd2a128
     pull_policy: never
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
@@ -130,7 +130,7 @@ services:
     networks: [backend]
 
   chromadb:
-    image: chatbot-bca/chromadb:1e0b73a187a2
+    image: chatbot/chromadb:1e0b73a187a2
     pull_policy: never
     environment:
       ANONYMIZED_TELEMETRY: "FALSE"
@@ -194,7 +194,7 @@ services:
     networks: [backend]
 
   proxy:
-    image: chatbot-bca/nginx:65645c7bb6a0
+    image: chatbot/nginx:65645c7bb6a0
     pull_policy: never
     group_add: ["${HOST_GID:?Set HOST_GID}"]
     ports:

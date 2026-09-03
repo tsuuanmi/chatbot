@@ -42,9 +42,7 @@ log() {
 
 is_chatbot_project_identity() {
   local identity="$1"
-  [[ "$identity" == chatbot-bca* \
-    || "$identity" == chatbot_bca* \
-    || "$identity" == chatbotbca* ]]
+  [[ "$identity" == chatbot || "$identity" == "$CHATBOT_PROJECT_NAME" ]]
 }
 
 is_chatbot_container_identity() {
@@ -178,7 +176,7 @@ rollback_incomplete_installation() {
     if ! cleanup_incomplete_installation; then
       log "Automatic rollback was incomplete; preserve this folder for recovery"
     fi
-    log "Removed legacy chatbot containers and volumes are not restored; host firewall rules may remain active"
+    log "Removed selected chatbot containers and volumes are not restored; host firewall rules may remain active"
   fi
   return "$status"
 }
@@ -205,13 +203,16 @@ for command in "${required_commands[@]}"; do
     exit 1
   }
 done
+project_digest="$(printf '%s' "$INSTALL_DIR" | sha256sum)"
+project_digest="${project_digest%% *}"
+CHATBOT_PROJECT_NAME="chatbot-${project_digest:0:12}"
 docker compose version >/dev/null
 if [[ "$MODE" == "offline" ]]; then
   validate_host_platform "$HOST_PLATFORM"
   log "Supported target platform: $HOST_PLATFORM ($HOST_FIREWALL firewall backend)"
 fi
 [[ "$(uname -m)" == "x86_64" ]] || {
-  echo "chatbot_bca.zip requires an x86_64 target computer." >&2
+  echo "chatbot.zip requires an x86_64 target computer." >&2
   exit 1
 }
 if [[ "$MODE" == "offline" ]]; then
@@ -244,7 +245,7 @@ if [[ "$MODE" == "offline" ]]; then
     && -f "$INSTALL_DIR/scripts/offline/detect_network.py" \
     && -f "$MODEL_DIR/SHA256SUMS" ]] || {
     echo "Required release files are missing or incomplete." >&2
-    echo "Extract chatbot_bca.zip, images.zip, and models.zip into the same parent directory." >&2
+    echo "Extract chatbot.zip, images.zip, and models.zip into the same parent directory." >&2
     exit 1
   }
 else
@@ -376,7 +377,7 @@ step "Preflight host firewall prerequisites"
 "$INSTALL_DIR/scripts/offline/configure_host.sh" --preflight \
   "$LAN_CIDR" "$SERVER_ADDRESS" "$HTTP_PORT" "$SSH_PORT" "$NETWORK_INTERFACE"
 
-step "Remove pre-existing chatbot containers and volumes"
+step "Remove existing chatbot containers and volumes"
 existing_container_output="$(docker ps -aq)"
 existing_containers=()
 chatbot_containers=()
@@ -400,7 +401,7 @@ else
           add_chatbot_volume "$volume"
         done <<< "$container_volume_output"
       fi
-      log "Selected legacy chatbot container for removal: $container_name ($container_id)"
+      log "Selected chatbot container for removal: $container_name ($container_id)"
     else
       log "Preserving unrelated container: $container_name ($container_id)"
     fi
@@ -420,16 +421,16 @@ for volume in "${existing_volumes[@]}"; do
 done
 
 if (( ${#chatbot_containers[@]} > 0 )); then
-  log "Force-removing ${#chatbot_containers[@]} legacy chatbot container(s)"
+  log "Force-removing ${#chatbot_containers[@]} chatbot container(s)"
   docker rm -f "${chatbot_containers[@]}" >/dev/null
 else
-  log "No legacy chatbot containers matched the supported names or labels"
+  log "No existing chatbot containers matched the supported names or labels"
 fi
 if (( ${#chatbot_volumes[@]} > 0 )); then
-  log "Removing ${#chatbot_volumes[@]} legacy chatbot Docker volume(s) for a fresh installation"
+  log "Removing ${#chatbot_volumes[@]} chatbot Docker volume(s) for a fresh installation"
   docker volume rm "${chatbot_volumes[@]}" >/dev/null
 else
-  log "No legacy chatbot Docker volumes matched"
+  log "No existing chatbot Docker volumes matched"
 fi
 rm -f "$INSTALL_DIR/config/.protected-volumes"
 
@@ -472,7 +473,7 @@ if ! remaining_gpu_mb="$(
   exit 1
 fi
 if [[ -n "$remaining_compute_processes" ]]; then
-  echo "GPU processes remain after removing legacy chatbot containers:" >&2
+  echo "GPU processes remain after removing selected chatbot containers:" >&2
   echo "$remaining_compute_processes" >&2
 fi
 echo "Total residual GPU memory: ${remaining_gpu_mb} MiB" >&2

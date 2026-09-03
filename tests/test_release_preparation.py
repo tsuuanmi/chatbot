@@ -81,32 +81,25 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
         "PATH": f"{fake_bin}:{os.environ['PATH']}",
         "MOCK_DOCKER_LOG": str(log),
     }
-    _run(
-        [
-            "bash",
-            "scripts/prepare.sh",
-            str(chatbot_zip),
-            str(images_zip),
-            str(models_zip),
-        ],
-        project,
-        environment,
-    )
+    _run(["bash", "scripts/prepare.sh"], project, environment)
+    assert chatbot_zip.is_file()
+    assert images_zip.is_file()
+    assert models_zip.is_file()
 
     extract = tmp_path / "extract"
     _run(["unzip", "-q", str(chatbot_zip), "-d", str(extract)], project)
     manifest = json.loads(
-        (extract / "chatbotbca" / "release-manifest.json").read_text(encoding="utf-8")
+        (extract / "chatbot" / "release-manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["format_version"] == 6
     assert "release" not in manifest
-    assert manifest["app_image"] == f"chatbot-bca:{short_sha}"
+    assert manifest["app_image"] == f"chatbot:{short_sha}"
     assert manifest["accelerator_images"] == {
-        "cpu": "chatbot-bca/llama.cpp-server-cpu:991cf50e9eb",
-        "gpu": "chatbot-bca/llama.cpp-server-cuda:b2497f8834f5",
+        "cpu": "chatbot/llama.cpp-server-cpu:991cf50e9eb",
+        "gpu": "chatbot/llama.cpp-server-cuda:b2497f8834f5",
     }
     assert set(manifest["accelerator_images"].values()) <= set(manifest["images"])
-    compose_dir = extract / "chatbotbca" / "compose"
+    compose_dir = extract / "chatbot" / "compose"
     for name in (
         "docker-compose.yml",
         "docker-compose.gpu.yml",
@@ -114,21 +107,24 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
         "docker-compose.offline.gpu.yml",
     ):
         assert (compose_dir / name).is_file()
-        assert not (extract / "chatbotbca" / name).exists()
-    assert (extract / "chatbotbca" / "scripts" / "accelerator.sh").is_file()
-    assert (
-        extract / "chatbotbca" / "scripts" / "offline" / "host_platform.sh"
-    ).is_file()
-    assert not (extract / "chatbotbca" / "models").exists()
+        assert not (extract / "chatbot" / name).exists()
+    assert (extract / "chatbot" / "scripts" / "accelerator.sh").is_file()
+    assert (extract / "chatbot" / "scripts" / "offline" / "host_platform.sh").is_file()
+    migration_script = (
+        extract / "chatbot" / "scripts" / "offline" / "migrate_resources.sh"
+    )
+    assert migration_script.is_file()
+    assert migration_script.stat().st_mode & 0o111
+    assert not (extract / "chatbot" / "models").exists()
     docker_log = log.read_text(encoding="utf-8")
     assert docker_log.count("docker pull ghcr.io/ggml-org/llama.cpp:") == 2
     assert "llama.cpp-server-cpu:991cf50e9eb" in docker_log
     assert "llama.cpp-server-cuda:b2497f8834f5" in docker_log
-    assert f"docker build --pull=false -t chatbot-bca:{short_sha}" in docker_log
+    assert f"docker build --pull=false -t chatbot:{short_sha}" in docker_log
 
     models_extract = tmp_path / "models-extract"
     _run(["unzip", "-q", str(models_zip), "-d", str(models_extract)], project)
-    models_dir = models_extract / "chatbotbca" / "models"
+    models_dir = models_extract / "chatbot" / "models"
     assert (models_dir / "SHA256SUMS").is_file()
     for model_name in MODEL_NAMES:
         assert (models_dir / model_name).is_file()

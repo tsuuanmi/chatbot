@@ -10,6 +10,8 @@ import subprocess
 import textwrap
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).parents[1]
 MODEL_NAMES = (
@@ -19,13 +21,11 @@ MODEL_NAMES = (
     "embeddinggemma-300M-Q8_0.gguf",
 )
 EXPECTED_REMOVAL_COMMAND = (
-    "docker rm -f chatbot-bca-legacy chatbot-bcaprod chatbot_bca2 "
-    "chatbotbcalegacy chatbot chatbot-postgres llama-server embedding-server "
-    "chatbot-chromadb legacy-labeled"
+    "docker rm -f chatbot chatbot-postgres llama-server embedding-server "
+    "chatbot-chromadb current-labeled"
 )
 EXPECTED_VOLUME_REMOVAL_COMMAND = (
-    "docker volume rm legacy-postgres-data chatbot-postgres-data "
-    "chatbot-bca-orphan_postgres_data"
+    "docker volume rm chatbot-postgres-data chatbot-current-data"
 )
 
 
@@ -35,7 +35,7 @@ def _write_executable(path: Path, content: str) -> None:
 
 
 def _prepare_release(tmp_path: Path) -> Path:
-    release = tmp_path / "chatbotbca"
+    release = tmp_path / "chatbot"
     for directory in (
         release / "config",
         release / "images",
@@ -52,6 +52,7 @@ def _prepare_release(tmp_path: Path) -> Path:
         "config/offline.env.template",
         "scripts/offline/common.sh",
         "scripts/offline/configure_host.sh",
+        "scripts/offline/migrate_resources.sh",
         "scripts/offline/host_platform.sh",
         "scripts/offline/detect_network.py",
         "scripts/offline/manage_client.sh",
@@ -76,18 +77,18 @@ def _prepare_release(tmp_path: Path) -> Path:
     manifest = {
         "format_version": 6,
         "architecture": "x86_64",
-        "app_image": "chatbot-bca:0.2.3",
+        "app_image": "chatbot:0.2.3",
         "accelerator_images": {
-            "cpu": "chatbot-bca/llama.cpp-server-cpu:test",
-            "gpu": "chatbot-bca/llama.cpp-server-cuda:test",
+            "cpu": "chatbot/llama.cpp-server-cpu:test",
+            "gpu": "chatbot/llama.cpp-server-cuda:test",
         },
         "images": [
-            "chatbot-bca:0.2.3",
-            "chatbot-bca/llama.cpp-server-cpu:test",
-            "chatbot-bca/llama.cpp-server-cuda:test",
-            "chatbot-bca/postgres:test",
-            "chatbot-bca/chromadb:test",
-            "chatbot-bca/nginx:test",
+            "chatbot:0.2.3",
+            "chatbot/llama.cpp-server-cpu:test",
+            "chatbot/llama.cpp-server-cuda:test",
+            "chatbot/postgres:test",
+            "chatbot/chromadb:test",
+            "chatbot/nginx:test",
         ],
     }
     (release / "release-manifest.json").write_text(
@@ -159,19 +160,15 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
             if os.environ.get("MOCK_DOCKER_PS_FAIL") == "1":
                 raise SystemExit(42)
             print(
-                "chatbot-bca-legacy\n"
-                "chatbot-bcaprod\n"
-                "chatbot_bca2\n"
-                "chatbotbcalegacy\n"
                 "chatbot\n"
                 "chatbot-postgres\n"
                 "llama-server\n"
                 "embedding-server\n"
                 "chatbot-chromadb\n"
-                "Chatbot-bca-uppercase\n"
+                "Chatbot-uppercase\n"
                 "camofox-browser\n"
                 "unrelated-project-worker\n"
-                "legacy-labeled"
+                "current-labeled"
             )
         elif args and args[0] == "inspect":
             target = args[-1]
@@ -187,32 +184,29 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
             elif format_value == "{{.Name}}":
                 print(f"/{target}")
             elif "com.docker.compose.project" in format_value:
-                if target == "legacy-labeled":
-                    print("chatbot_bca_legacy")
+                if target == "current-labeled":
+                    print(os.environ["MOCK_CHATBOT_PROJECT_NAME"])
                 elif target == "unrelated-project-worker":
-                    print("chatbot")
+                    print("other-project")
             elif ".Mounts" in format_value:
-                if target == "chatbot-bca-legacy":
-                    print("legacy-postgres-data")
-                elif target == "chatbot-postgres":
+                if target == "chatbot-postgres":
                     print("chatbot-postgres-data")
             else:
                 print("healthy")
         elif args and args[0] == "volume":
             if args[1] == "ls":
                 print(
-                    "legacy-postgres-data\n"
                     "chatbot-postgres-data\n"
-                    "chatbot-bca-orphan_postgres_data\n"
+                    "chatbot-current-data\n"
                     "generic-project-volume\n"
                     "unrelated-volume"
                 )
             elif args[1] == "inspect":
                 target = args[-1]
-                if target == "chatbot-bca-orphan_postgres_data":
-                    print("chatbot-bca-orphan")
+                if target == "chatbot-current-data":
+                    print(os.environ["MOCK_CHATBOT_PROJECT_NAME"])
                 elif target == "generic-project-volume":
-                    print("chatbot")
+                    print("other-project")
                 elif target == "unrelated-volume":
                     print("camofox")
             elif args[1] != "rm":
@@ -393,7 +387,7 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
             elif "--list-rich-rules" in args:
                 print(os.environ.get("MOCK_BROAD_FIREWALL_RULE", ""))
         elif command == "systemctl" and "restart" in args:
-            firewall = root / "usr/local/sbin/chatbot-bca-firewall"
+            firewall = root / "usr/local/sbin/chatbot-firewall"
             for _ in range(2):
                 subprocess.run([firewall], check=True)
         """,
@@ -454,6 +448,8 @@ def _run_installer(
             "HTTP_PORT": "18080",
             "MOCK_CHATBOT_UNHEALTHY": "1" if chatbot_unhealthy else "0",
             "MOCK_CHATBOT_UP_FAIL": "1" if chatbot_up_fails else "0",
+            "MOCK_CHATBOT_PROJECT_NAME": "chatbot-"
+            + hashlib.sha256(str(release).encode()).hexdigest()[:12],
             "MOCK_COMMAND_LOG": str(command_log),
             "MOCK_CURL_FAIL": "1" if curl_fails else "0",
             "MOCK_DOCKER_PS_FAIL": "1" if docker_ps_fails else "0",
@@ -497,7 +493,7 @@ def test_installer_completes_with_five_clients_and_host_automation(
     assert "EMBEDDING_CTX_SIZE=2048" in environment_text
     assert "EMBEDDING_BATCH_SIZE=2048" in environment_text
     assert "EMBEDDING_UBATCH_SIZE=2048" in environment_text
-    assert "APP_IMAGE=chatbot-bca:0.2.3" in environment_text
+    assert "APP_IMAGE=chatbot:0.2.3" in environment_text
 
     auth = json.loads(
         (release / "config/auth/api_keys.json").read_text(encoding="utf-8")
@@ -520,7 +516,7 @@ def test_installer_completes_with_five_clients_and_host_automation(
     assert removal_line == EXPECTED_REMOVAL_COMMAND
     assert "camofox-browser" not in removal_line
     assert "unrelated-project-worker" not in removal_line
-    assert "Chatbot-bca-uppercase" not in removal_line
+    assert "Chatbot-uppercase" not in removal_line
     volume_removal_line = next(
         line for line in commands.splitlines() if line.startswith("docker volume rm ")
     )
@@ -534,7 +530,7 @@ def test_installer_completes_with_five_clients_and_host_automation(
     assert "ufw allow from 192.168.50.0/24 to any port 18080" in commands
     assert "systemctl enable docker.service" in commands
 
-    firewall_program = (mock_root / "usr/local/sbin/chatbot-bca-firewall").read_text(
+    firewall_program = (mock_root / "usr/local/sbin/chatbot-firewall").read_text(
         encoding="utf-8"
     )
     assert "HTTP_PORT='18080'" in firewall_program
@@ -544,8 +540,8 @@ def test_installer_completes_with_five_clients_and_host_automation(
     firewall_state = json.loads(
         (tmp_path / "iptables-state.json").read_text(encoding="utf-8")
     )
-    assert firewall_state["DOCKER-USER"] == [["-j", "CHATBOT_BCA"]]
-    assert firewall_state["CHATBOT_BCA"] == [
+    assert firewall_state["DOCKER-USER"] == [["-j", "CHATBOT"]]
+    assert firewall_state["CHATBOT"] == [
         [
             "-s",
             "192.168.50.0/24",
@@ -584,12 +580,16 @@ def test_installer_completes_with_five_clients_and_host_automation(
     assert "Generated 5 unique client credential file(s)" in install_log
 
 
-def test_installer_uses_cpu_without_nvidia_support(tmp_path: Path) -> None:
+@pytest.mark.parametrize("platform", ["ubuntu", "rhel"])
+def test_installer_uses_cpu_without_nvidia_support(
+    tmp_path: Path, platform: str
+) -> None:
     result, release, command_log, _ = _run_installer(
         tmp_path,
         gpu="no",
         nvidia_runtime=False,
         nvidia_host_fails=True,
+        platform=platform,
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -622,7 +622,7 @@ def test_installer_configures_rhel_firewalld_without_ufw(tmp_path: Path) -> None
     assert commands.index("firewall-cmd --state") < commands.index("docker rm -f")
     assert "--reload" not in commands
     assert "ufw " not in commands
-    firewall_state = (mock_root / "etc/chatbot-bca/firewall.conf").read_text(
+    firewall_state = (mock_root / "etc/chatbot/firewall.conf").read_text(
         encoding="utf-8"
     )
     assert "FIREWALL_BACKEND=firewalld" in firewall_state
@@ -690,13 +690,13 @@ def test_installer_rolls_back_generated_state_after_readiness_failure(
     assert not (release / "config/.installed").exists()
     assert not (release / "config/auth").exists()
     assert not (release / "config/clients").exists()
-    assert (mock_root / "etc/chatbot-bca/firewall.conf").is_file()
+    assert (mock_root / "etc/chatbot/firewall.conf").is_file()
     commands = command_log.read_text(encoding="utf-8")
     assert EXPECTED_REMOVAL_COMMAND in commands
     assert EXPECTED_VOLUME_REMOVAL_COMMAND in commands
     assert "down -v --remove-orphans" in commands
     assert (
-        "Removed legacy chatbot containers and volumes are not restored"
+        "Removed selected chatbot containers and volumes are not restored"
         in result.stdout
     )
 
@@ -778,7 +778,7 @@ def test_installer_blocks_1024_mib_residual_gpu_usage(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert not (release / ".env").exists()
-    assert not (mock_root / "etc/chatbot-bca/firewall.conf").exists()
+    assert not (mock_root / "etc/chatbot/firewall.conf").exists()
     assert "Total residual GPU memory: 1024 MiB" in result.stdout
     assert "Residual GPU usage is at least 1024 MiB" in result.stdout
     commands = command_log.read_text(encoding="utf-8")
@@ -791,7 +791,7 @@ def test_installer_rejects_invalid_gpu_memory_measurement(tmp_path: Path) -> Non
 
     assert result.returncode != 0
     assert not (release / ".env").exists()
-    assert not (mock_root / "etc/chatbot-bca/firewall.conf").exists()
+    assert not (mock_root / "etc/chatbot/firewall.conf").exists()
     assert "invalid total GPU memory measurement" in result.stdout
     assert "N/A" in result.stdout
 
@@ -801,7 +801,7 @@ def test_installer_fails_closed_when_gpu_query_fails(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert not (release / ".env").exists()
-    assert not (mock_root / "etc/chatbot-bca/firewall.conf").exists()
+    assert not (mock_root / "etc/chatbot/firewall.conf").exists()
     assert "Could not measure total NVIDIA GPU memory use" in result.stdout
     assert "mock GPU query failure" in result.stdout
 
@@ -813,7 +813,7 @@ def test_installer_aborts_if_docker_inventory_fails(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert not (release / ".env").exists()
-    assert not (mock_root / "etc/chatbot-bca/firewall.conf").exists()
+    assert not (mock_root / "etc/chatbot/firewall.conf").exists()
     commands = command_log.read_text(encoding="utf-8")
     assert "docker ps -aq" in commands
     assert "docker rm -f" not in commands
