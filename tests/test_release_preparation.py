@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -91,7 +92,7 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
     manifest = json.loads(
         (extract / "chatbot" / "release-manifest.json").read_text(encoding="utf-8")
     )
-    assert manifest["format_version"] == 6
+    assert manifest["format_version"] == 7
     assert "release" not in manifest
     assert manifest["app_image"] == f"chatbot:{short_sha}"
     assert manifest["accelerator_images"] == {
@@ -99,6 +100,13 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
         "gpu": "chatbot/llama.cpp-server-cuda:b2497f8834f5",
     }
     assert set(manifest["accelerator_images"].values()) <= set(manifest["images"])
+    images_extract = tmp_path / "images-extract"
+    _run(["unzip", "-q", str(images_zip), "-d", str(images_extract)], project)
+    runtime_images = images_extract / "chatbot" / "images" / "runtime-images.tar"
+    assert (
+        manifest["runtime_images_sha256"]
+        == hashlib.sha256(runtime_images.read_bytes()).hexdigest()
+    )
     compose_dir = extract / "chatbot" / "compose"
     for name in (
         "docker-compose.yml",

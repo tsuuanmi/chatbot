@@ -20,13 +20,8 @@ MODEL_NAMES = (
     "mtp-gemma-4-E2B-it.gguf",
     "embeddinggemma-300M-Q8_0.gguf",
 )
-EXPECTED_REMOVAL_COMMAND = (
-    "docker rm -f chatbot chatbot-postgres llama-server embedding-server "
-    "chatbot-chromadb current-labeled"
-)
-EXPECTED_VOLUME_REMOVAL_COMMAND = (
-    "docker volume rm chatbot-postgres-data chatbot-current-data"
-)
+EXPECTED_REMOVAL_COMMAND = "docker rm -f current-labeled"
+EXPECTED_VOLUME_REMOVAL_COMMAND = "docker volume rm chatbot-current-data"
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -75,7 +70,7 @@ def _prepare_release(tmp_path: Path) -> Path:
     )
 
     manifest = {
-        "format_version": 6,
+        "format_version": 7,
         "architecture": "x86_64",
         "app_image": "chatbot:0.2.3",
         "accelerator_images": {
@@ -90,6 +85,9 @@ def _prepare_release(tmp_path: Path) -> Path:
             "chatbot/chromadb:test",
             "chatbot/nginx:test",
         ],
+        "runtime_images_sha256": hashlib.sha256(
+            (release / "images/runtime-images.tar").read_bytes()
+        ).hexdigest(),
     }
     (release / "release-manifest.json").write_text(
         json.dumps(manifest), encoding="utf-8"
@@ -426,11 +424,14 @@ def _run_installer(
     nvidia_runtime: bool = True,
     nvidia_host_fails: bool = False,
     cuda_unavailable: bool = False,
+    runtime_images_corrupt: bool = False,
     reset_incomplete: bool = False,
     platform: str = "ubuntu",
     broad_firewall_rule: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
     release = _prepare_release(tmp_path)
+    if runtime_images_corrupt:
+        (release / "images/runtime-images.tar").write_bytes(b"tampered image archive")
     os_release = tmp_path / "os-release"
     if platform == "ubuntu":
         os_release.write_text("ID=ubuntu\nVERSION_ID=26.04\n", encoding="utf-8")
@@ -514,9 +515,17 @@ def test_installer_completes_with_five_clients_and_host_automation(
         line for line in commands.splitlines() if line.startswith("docker rm -f ")
     )
     assert removal_line == EXPECTED_REMOVAL_COMMAND
-    assert "camofox-browser" not in removal_line
-    assert "unrelated-project-worker" not in removal_line
-    assert "Chatbot-uppercase" not in removal_line
+    for unrelated_name in (
+        "chatbot",
+        "chatbot-postgres",
+        "llama-server",
+        "embedding-server",
+        "chatbot-chromadb",
+        "camofox-browser",
+        "unrelated-project-worker",
+        "Chatbot-uppercase",
+    ):
+        assert unrelated_name not in removal_line
     volume_removal_line = next(
         line for line in commands.splitlines() if line.startswith("docker volume rm ")
     )
@@ -642,6 +651,21 @@ def test_installer_rejects_broad_rhel_firewalld_rule_before_cleanup(
     assert result.returncode != 0
     assert "broad accepting rule for TCP port 22" in result.stdout
     assert "docker rm -f" not in command_log.read_text(encoding="utf-8")
+
+
+def test_installer_rejects_tampered_runtime_image_archive_before_load(
+    tmp_path: Path,
+) -> None:
+    result, release, command_log, _ = _run_installer(
+        tmp_path, gpu="no", runtime_images_corrupt=True
+    )
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert "runtime image archive checksum does not match" in result.stdout
+    commands = command_log.read_text(encoding="utf-8")
+    assert "docker load -i" not in commands
+    assert "docker rm -f" not in commands
 
 
 def test_installer_rejects_under_capacity_gpu_before_cleanup(

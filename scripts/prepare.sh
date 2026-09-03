@@ -119,6 +119,7 @@ python3 - "$stage/release-manifest.json" "$source_commit" "$APP_IMAGE" \
   "$LLAMA_CPU_IMAGE" "$LLAMA_GPU_IMAGE" "$POSTGRES_IMAGE" "$CHROMA_IMAGE" \
   "$NGINX_IMAGE" "$LLAMA_CPU_SOURCE" "$LLAMA_GPU_SOURCE" "$POSTGRES_SOURCE" \
   "$CHROMA_SOURCE" "$NGINX_SOURCE" <<'PY'
+import hashlib
 import json
 import platform
 import sys
@@ -128,8 +129,13 @@ from pathlib import Path
 path = Path(sys.argv[1])
 images = [sys.argv[3]] + sys.argv[4:9]
 source_images = sys.argv[9:14]
+runtime_images_digest = hashlib.sha256()
+with (path.parent / "images" / "runtime-images.tar").open("rb") as archive:
+    for chunk in iter(lambda: archive.read(1024 * 1024), b""):
+        runtime_images_digest.update(chunk)
+runtime_images_sha256 = runtime_images_digest.hexdigest()
 manifest = {
-    "format_version": 6,
+    "format_version": 7,
     "source_commit": sys.argv[2],
     "architecture": "x86_64",
     "created_at": datetime.now(timezone.utc).isoformat(),
@@ -138,6 +144,7 @@ manifest = {
     "accelerator_images": {"cpu": sys.argv[4], "gpu": sys.argv[5]},
     "images": images,
     "image_sources": dict(zip(images[1:], source_images, strict=True)),
+    "runtime_images_sha256": runtime_images_sha256,
 }
 path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 PY

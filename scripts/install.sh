@@ -42,17 +42,7 @@ log() {
 
 is_chatbot_project_identity() {
   local identity="$1"
-  [[ "$identity" == chatbot || "$identity" == "$CHATBOT_PROJECT_NAME" ]]
-}
-
-is_chatbot_container_identity() {
-  local identity="$1"
-  is_chatbot_project_identity "$identity" \
-    || [[ "$identity" == chatbot \
-      || "$identity" == chatbot-postgres \
-      || "$identity" == chatbot-chromadb \
-      || "$identity" == llama-server \
-      || "$identity" == embedding-server ]]
+  [[ "$identity" == "$CHATBOT_PROJECT_NAME" ]]
 }
 
 add_chatbot_volume() {
@@ -307,13 +297,35 @@ verify_models
   cd "$INSTALL_DIR"
   sha256sum -c SHA256SUMS
 )
+python3 - "$INSTALL_DIR/release-manifest.json" "$INSTALL_DIR/images/runtime-images.tar" <<'PY'
+import hashlib
+import hmac
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = manifest.get("runtime_images_sha256")
+if not isinstance(expected, str) or len(expected) != 64:
+    raise SystemExit("release manifest is missing the runtime image archive checksum")
+try:
+    int(expected, 16)
+except ValueError:
+    raise SystemExit("release manifest has an invalid runtime image archive checksum") from None
+digest = hashlib.sha256()
+with Path(sys.argv[2]).open("rb") as archive:
+    for chunk in iter(lambda: archive.read(1024 * 1024), b""):
+        digest.update(chunk)
+if not hmac.compare_digest(digest.hexdigest(), expected):
+    raise SystemExit("runtime image archive checksum does not match the release manifest")
+PY
 available_kb="$(df -Pk "$INSTALL_DIR" | awk 'NR==2 {print $4}')"
 required_kb=$((20 * 1024 * 1024))
 if (( available_kb < required_kb )); then
   echo "At least 20 GB free space is required in $INSTALL_DIR." >&2
   exit 1
 fi
-log "Release checksums passed; at least 20 GB free space is available"
+log "Release and runtime image archive checksums passed; at least 20 GB free space is available"
 
 step "Load offline Docker images and verify required tags"
 docker load -i "$INSTALL_DIR/images/runtime-images.tar"
@@ -324,7 +336,7 @@ import sys
 from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-if manifest.get("format_version") != 6:
+if manifest.get("format_version") != 7:
     raise SystemExit("unsupported release manifest format")
 if manifest.get("architecture") != "x86_64":
     raise SystemExit(f"unsupported archive architecture: {manifest.get('architecture')}")
@@ -392,8 +404,7 @@ else
     container_name="$(docker inspect --format '{{.Name}}' "$container_id")"
     container_name="${container_name#/}"
     compose_project="$(docker inspect --format '{{if .Config.Labels}}{{index .Config.Labels "com.docker.compose.project"}}{{end}}' "$container_id")"
-    if is_chatbot_container_identity "$container_name" \
-      || is_chatbot_project_identity "$compose_project"; then
+    if is_chatbot_project_identity "$compose_project"; then
       chatbot_containers+=("$container_id")
       container_volume_output="$(docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name}}{{end}}{{end}}' "$container_id")"
       if [[ -n "$container_volume_output" ]]; then
@@ -424,7 +435,7 @@ if (( ${#chatbot_containers[@]} > 0 )); then
   log "Force-removing ${#chatbot_containers[@]} chatbot container(s)"
   docker rm -f "${chatbot_containers[@]}" >/dev/null
 else
-  log "No existing chatbot containers matched the supported names or labels"
+  log "No existing chatbot containers matched this deployment's Compose project label"
 fi
 if (( ${#chatbot_volumes[@]} > 0 )); then
   log "Removing ${#chatbot_volumes[@]} chatbot Docker volume(s) for a fresh installation"

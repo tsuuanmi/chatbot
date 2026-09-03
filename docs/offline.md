@@ -102,10 +102,11 @@ Supported target profiles:
   `ip`, `awk`, and `tee`;
 - for GPU mode only: NVIDIA GTX 1660 Super 6 GB or better, NVIDIA driver, NVIDIA
   Container Toolkit, and `nvidia-smi`;
-- a dedicated chatbot host: installation removes only the current chatbot containers
-  and Compose-labeled volumes for a fresh database; resources from a previous naming
-  scheme require the isolated migration command in section 6.1. Unrelated containers
-  and volumes, Docker images, GGUF models, and source files are preserved;
+- a dedicated chatbot host: installation removes only containers and volumes with this
+  release folder's path-derived Compose project label for a fresh database; resources
+  from a previous naming scheme require the isolated migration command in section 6.1.
+  Unrelated containers and volumes, Docker images, GGUF models, and source files are
+  preserved;
 - a reserved/static LAN IPv4 address is recommended so client URLs remain stable.
 
 Check before transfer:
@@ -145,8 +146,8 @@ The builder:
 5. exports all runtime images to `images/runtime-images.tar`;
 6. records the source commit and required image tags in `release-manifest.json`;
 7. creates `SHA256SUMS` for source/configuration files and a separate
-   `models/SHA256SUMS` for the GGUF files; the large Docker image archive is
-   intentionally not checksummed;
+   `models/SHA256SUMS` for the GGUF files; `release-manifest.json` records the
+   SHA-256 checksum of `images/runtime-images.tar` and is itself source-checksummed;
 8. creates and integrity-checks all three ZIPs before publishing them, and removes
    already-published outputs if publishing a later one fails.
 
@@ -242,12 +243,12 @@ The installer performs these actions:
 
 1. validates required files, commands, architecture, and installation state;
 2. detects and validates the server address, interface, and trusted LAN CIDR;
-3. checks four model filenames and their `models/SHA256SUMS` checksums, release checksums, free space, Docker, and the selected profile;
-4. loads images, confirms CPU and CUDA image tags, and validates CUDA container access and at least 6 GiB on every NVIDIA GPU before cleanup;
+3. checks four model filenames and their `models/SHA256SUMS` checksums, release checksums, the manifest-recorded runtime image archive checksum, free space, Docker, and the selected profile;
+4. loads images only after the archive checksum passes, confirms CPU and CUDA image tags, and validates CUDA container access and at least 6 GiB on every NVIDIA GPU before cleanup;
 5. preflights the selected host firewall backend, SELinux on RHEL, and conntrack support
    before deleting current chatbot data;
-6. force-removes containers identified by current chatbot names or Compose labels and
-   deletes their attached/orphaned volumes, while preserving unrelated Docker resources;
+6. force-removes only containers and volumes carrying this release folder's
+   path-derived Compose project label, while preserving unrelated Docker resources;
 7. for GPU only, requires successful NVIDIA total-memory and process queries, warns
    and continues when total residual use is below 1024 MiB, and stops at 1024 MiB or more;
 8. validates that the selected HTTP bind address/port is available;
@@ -529,9 +530,9 @@ substantial process safely, and rerun. A failed total-memory or process query al
 installation; the installer never kills host processes or silently assumes that
 measurement succeeded.
 
-Only containers identified by current chatbot names or Compose labels are removed.
-Their Docker volumes are also deleted to prevent stale PostgreSQL credentials from
-breaking API startup. Unrelated containers and volumes continue unchanged; Docker
+Only containers and volumes with this release folder's path-derived Compose project
+label are removed to prevent stale PostgreSQL credentials from breaking API startup.
+Unrelated containers and volumes continue unchanged; Docker
 images, GGUF models, and source files are preserved. Resources from an earlier naming
 scheme require the explicit, isolated migration command in section 6.1.
 
@@ -583,7 +584,7 @@ With target WAN access disconnected:
 - extract `chatbot.zip`, `images.zip`, and `models.zip` under `/home/superman/workspaces`;
 - reserve the target's LAN IPv4 address and confirm the installer selects its CIDR;
 - run `./install.sh --gpu yes` (or `--gpu no`) successfully and confirm five credential files are generated;
-- confirm selected chatbot containers were removed, unrelated containers remain, and every new service is healthy; migrate any earlier-naming resources separately;
+- confirm only containers and volumes with the release folder's project label were removed, unrelated resources remain, and every new service is healthy; migrate any earlier-naming resources separately;
 - confirm authenticated `/api/v1/ready` reports `ready`;
 - test prepared, generated, figure, streaming, and delete paths;
 - verify invalid keys return HTTP 401;

@@ -195,9 +195,10 @@ cd chatbot
 # or: ./install.sh --gpu yes   # require the NVIDIA GPU profile
 ```
 
-The installer detects the primary LAN IPv4 address and subnet, removes only current
-chatbot containers and volumes for a fresh database while preserving unrelated Docker
-resources, images, and GGUF models, generates five client credentials. Resources from a
+The installer detects the primary LAN IPv4 address and subnet, removes only containers
+and volumes bearing this release folder's path-derived Compose project label, preserves
+unrelated Docker resources, images, and GGUF models, and generates five client
+credentials. Resources from a
 previous naming scheme require the explicit migration utility documented in
 `docs/offline.md`; the installer does not guess them. It configures LAN-only host
 firewall rules (UFW on Ubuntu, firewalld on RHEL) and Docker port isolation, and enables
