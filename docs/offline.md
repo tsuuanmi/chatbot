@@ -305,8 +305,9 @@ The installer performs these actions:
    CUDA container access and at least 6 GiB on every NVIDIA GPU before cleanup;
 8. preflights the selected host firewall backend, SELinux on RHEL, conntrack support,
    and Docker's `DOCKER-USER` chain before deleting current chatbot data;
-9. for GPU only, requires successful NVIDIA total-memory and process queries, warns
-   and continues when total residual use is below 1024 MiB, and stops at 1024 MiB or more;
+9. for GPU only, requires successful NVIDIA total-memory and process queries, keeps the
+   1024 MiB residual limit on a 6 GiB GPU, and permits larger GPUs to use desktop memory
+   while reserving at least 6 GiB for Chatbot;
 10. validates that the selected HTTP bind address/port is available;
 11. force-removes only containers and volumes carrying this release folder's
     path-derived Compose project label, and removes leftover chatbot images from
@@ -581,12 +582,13 @@ disabling it.
 
 ### Residual GPU processes are reported
 
-Desktop processes such as Nautilus, Ptyxis, and GNOME Text Editor do not block
-installation while NVIDIA reports less than 1024 MiB of total device memory in use.
-At 1024 MiB or more, review the available PIDs with `ps` and `nvidia-smi`, stop the
-substantial process safely, and rerun. A failed total-memory or process query also stops
-installation; the installer never kills host processes or silently assumes that
-measurement succeeded.
+Desktop processes such as Nautilus, Ptyxis, GNOME Text Editor, and Zed are allowed
+when the GPU retains enough capacity for Chatbot. A 6 GiB GPU keeps the strict 1024 MiB
+residual limit; larger GPUs may use more desktop memory while setup reserves at least
+6 GiB. When the installer reports insufficient free GPU memory, review the available
+PIDs with `ps` and `nvidia-smi`, stop substantial processes safely, and rerun. A failed
+total-memory or process query also stops installation; the installer never kills host
+processes or silently assumes that measurement succeeded.
 
 Only containers and volumes with this release folder's path-derived Compose project
 label are removed to prevent stale PostgreSQL credentials from breaking API startup.

@@ -348,6 +348,13 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
           exit 42
         fi
         case "$*" in
+          *--query-gpu=memory.total,memory.used*)
+            if [ "${MOCK_GPU_QUERY_FAIL:-0}" = 1 ]; then
+              echo "mock GPU query failure" >&2
+              exit 42
+            fi
+            printf '%s, %s' "${MOCK_GPU_MEMORY_TOTAL:-6144}" "${MOCK_GPU_MEMORY_USED:-0}"
+            ;;
           *--query-gpu=memory.total*) printf '%s' "${MOCK_GPU_MEMORY_TOTAL:-6144}" ;;
           *--query-gpu=memory.used*)
             if [ "${MOCK_GPU_QUERY_FAIL:-0}" = 1 ]; then
@@ -1218,8 +1225,27 @@ def test_installer_allows_small_desktop_gpu_usage(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+    assert "GPU 0 residual memory: 69 MiB of 6144 MiB (limit 1024 MiB)" in result.stdout
     assert "Total residual GPU memory: 69 MiB" in result.stdout
-    assert "total residual GPU usage is below 1024 MiB" in result.stdout
+    assert "capacity-aware residual limit" in result.stdout
+
+
+def test_installer_allows_desktop_gpu_usage_when_capacity_is_available(
+    tmp_path: Path,
+) -> None:
+    result, _, _, _ = _run_installer(
+        tmp_path,
+        gpu_memory_total=16384,
+        gpu_memory_used=1594,
+        gpu_processes="2211593, /home/superman/.local/zed.app/libexec/zed-editor, 203",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (
+        "GPU 0 residual memory: 1594 MiB of 16384 MiB (limit 10240 MiB)"
+        in result.stdout
+    )
+    assert "capacity-aware residual limit" in result.stdout
 
 
 def test_installer_allows_1023_mib_residual_gpu_usage(tmp_path: Path) -> None:
@@ -1230,8 +1256,11 @@ def test_installer_allows_1023_mib_residual_gpu_usage(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+    assert (
+        "GPU 0 residual memory: 1023 MiB of 6144 MiB (limit 1024 MiB)" in result.stdout
+    )
     assert "Total residual GPU memory: 1023 MiB" in result.stdout
-    assert "total residual GPU usage is below 1024 MiB" in result.stdout
+    assert "capacity-aware residual limit" in result.stdout
 
 
 def test_installer_blocks_1024_mib_residual_gpu_usage(tmp_path: Path) -> None:
@@ -1244,8 +1273,11 @@ def test_installer_blocks_1024_mib_residual_gpu_usage(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert not (release / ".env").exists()
     assert not (mock_root / "etc/chatbot/firewall.conf").exists()
+    assert (
+        "GPU 0 residual memory: 1024 MiB of 6144 MiB (limit 1024 MiB)" in result.stdout
+    )
     assert "Total residual GPU memory: 1024 MiB" in result.stdout
-    assert "Residual GPU usage is at least 1024 MiB" in result.stdout
+    assert "GPU 0 does not have enough free memory" in result.stdout
     commands = command_log.read_text(encoding="utf-8")
     assert "docker rm -f" not in commands
     assert "docker volume rm" not in commands
@@ -1290,7 +1322,7 @@ def test_installer_rejects_invalid_gpu_memory_measurement(tmp_path: Path) -> Non
     assert result.returncode != 0
     assert not (release / ".env").exists()
     assert not (mock_root / "etc/chatbot/firewall.conf").exists()
-    assert "invalid total GPU memory measurement" in result.stdout
+    assert "invalid GPU memory measurement" in result.stdout
     assert "N/A" in result.stdout
 
 
@@ -1300,7 +1332,7 @@ def test_installer_fails_closed_when_gpu_query_fails(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert not (release / ".env").exists()
     assert not (mock_root / "etc/chatbot/firewall.conf").exists()
-    assert "Could not measure total NVIDIA GPU memory use" in result.stdout
+    assert "Could not measure NVIDIA GPU memory capacity and use" in result.stdout
     assert "mock GPU query failure" in result.stdout
 
 

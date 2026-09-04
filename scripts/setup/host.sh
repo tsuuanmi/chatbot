@@ -25,13 +25,42 @@ preflight_host_firewall() {
 }
 
 validate_residual_gpu_memory() {
+  local gpu_memory_output remaining_compute_processes
+  local gpu_index gpu_total_mb gpu_used_mb extra allowed_residual_mb
+  local total_residual_mb=0 blocked=false
+  local -a gpu_memory_lines=()
   if ! gpu_memory_output="$(
-    nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>&1
+    nvidia-smi --query-gpu=memory.total,memory.used --format=csv,noheader,nounits 2>&1
   )"; then
-    echo "Could not measure total NVIDIA GPU memory use:" >&2
+    echo "Could not measure NVIDIA GPU memory capacity and use:" >&2
     echo "$gpu_memory_output" >&2
     exit 1
   fi
+  mapfile -t gpu_memory_lines <<< "$gpu_memory_output"
+  (( ${#gpu_memory_lines[@]} > 0 )) || {
+    echo "NVIDIA returned no GPU memory measurements." >&2
+    exit 1
+  }
+  for gpu_index in "${!gpu_memory_lines[@]}"; do
+    IFS=, read -r gpu_total_mb gpu_used_mb extra <<< "${gpu_memory_lines[$gpu_index]}"
+    gpu_total_mb="${gpu_total_mb//[[:space:]]/}"
+    gpu_used_mb="${gpu_used_mb//[[:space:]]/}"
+    [[ -z "$extra" && "$gpu_total_mb" =~ ^[0-9]+$ && "$gpu_used_mb" =~ ^[0-9]+$ ]] || {
+      echo "NVIDIA returned an invalid GPU memory measurement:" >&2
+      echo "${gpu_memory_lines[$gpu_index]}" >&2
+      exit 1
+    }
+    allowed_residual_mb=$((gpu_total_mb - minimum_gpu_memory_mib))
+    if (( allowed_residual_mb < residual_gpu_limit_mb )); then
+      allowed_residual_mb=$residual_gpu_limit_mb
+    fi
+    total_residual_mb=$((total_residual_mb + gpu_used_mb))
+    echo "GPU $gpu_index residual memory: ${gpu_used_mb} MiB of ${gpu_total_mb} MiB (limit ${allowed_residual_mb} MiB)" >&2
+    if (( gpu_used_mb >= allowed_residual_mb )); then
+      echo "GPU $gpu_index does not have enough free memory for the selected profile." >&2
+      blocked=true
+    fi
+  done
   if ! remaining_compute_processes="$(
     nvidia-smi --query-compute-apps=pid,process_name,used_memory \
       --format=csv,noheader,nounits 2>&1
@@ -40,40 +69,17 @@ validate_residual_gpu_memory() {
     echo "$remaining_compute_processes" >&2
     exit 1
   fi
-  if ! remaining_gpu_mb="$(
-    awk '
-      {
-        value = $0
-        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-        if (value !~ /^[0-9]+([.][0-9]+)?$/) {
-          invalid = 1
-          next
-        }
-        total += value
-        count += 1
-      }
-      END {
-        if (invalid || count == 0) exit 1
-        printf "%.0f", total
-      }
-    ' <<< "$gpu_memory_output"
-  )"; then
-    echo "NVIDIA returned an invalid total GPU memory measurement:" >&2
-    echo "$gpu_memory_output" >&2
-    exit 1
-  fi
   if [[ -n "$remaining_compute_processes" ]]; then
     echo "GPU processes are using memory before installation:" >&2
     echo "$remaining_compute_processes" >&2
   fi
-  echo "Total residual GPU memory: ${remaining_gpu_mb} MiB" >&2
-  if (( remaining_gpu_mb >= residual_gpu_limit_mb )); then
-    echo "Residual GPU usage is at least ${residual_gpu_limit_mb} MiB." >&2
+  echo "Total residual GPU memory: ${total_residual_mb} MiB" >&2
+  if [[ "$blocked" == true ]]; then
     echo "Stop substantial GPU processes safely, then run setup.sh again." >&2
     exit 1
   fi
-  if (( remaining_gpu_mb > 0 )); then
-    log "Continuing because total residual GPU usage is below ${residual_gpu_limit_mb} MiB"
+  if (( total_residual_mb > 0 )); then
+    log "Continuing because every GPU remains within its capacity-aware residual limit"
   else
     log "GPU reports no residual memory use"
   fi
