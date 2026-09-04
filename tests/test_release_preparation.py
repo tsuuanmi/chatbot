@@ -70,6 +70,8 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
         "  shift\n"
         '  [ "$1" = -o ]\n'
         '  : > "$2"\n'
+        'elif [ "$1" = image ] && [ "$2" = inspect ]; then\n'
+        "  printf 'sha256:mock-%s\\n' \"$5\"\n"
         "fi\n",
         encoding="utf-8",
     )
@@ -92,21 +94,29 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
     manifest = json.loads(
         (extract / "chatbot" / "release-manifest.json").read_text(encoding="utf-8")
     )
-    assert manifest["format_version"] == 7
+    assert manifest["format_version"] == 8
     assert "release" not in manifest
+    assert "runtime_images_sha256" not in manifest
     assert manifest["app_image"] == f"chatbot:{short_sha}"
     assert manifest["accelerator_images"] == {
         "cpu": "chatbot/llama.cpp-server-cpu:991cf50e9eb",
         "gpu": "chatbot/llama.cpp-server-cuda:b2497f8834f5",
     }
     assert set(manifest["accelerator_images"].values()) <= set(manifest["images"])
+    image_archives = manifest["image_archives"]
+    assert [entry["image"] for entry in image_archives] == manifest["images"]
     images_extract = tmp_path / "images-extract"
     _run(["unzip", "-q", str(images_zip), "-d", str(images_extract)], project)
-    runtime_images = images_extract / "chatbot" / "images" / "runtime-images.tar"
-    assert (
-        manifest["runtime_images_sha256"]
-        == hashlib.sha256(runtime_images.read_bytes()).hexdigest()
-    )
+    for entry in image_archives:
+        archive = images_extract / "chatbot" / "images" / entry["archive"]
+        assert archive.is_file()
+        assert (
+            entry["archive_sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
+        )
+        assert entry["image_id"] == f"sha256:mock-{entry['image']}"
+        individual_archive = tmp_path / "images" / entry["archive"]
+        assert individual_archive.is_file()
+        assert individual_archive.read_bytes() == archive.read_bytes()
     compose_dir = extract / "chatbot" / "compose"
     for name in (
         "docker-compose.yml",
@@ -129,17 +139,20 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
         .splitlines()
     )
     assert (extract / "chatbot" / "scripts" / "offline" / "host_platform.sh").is_file()
-    migration_script = (
+    assert not (
         extract / "chatbot" / "scripts" / "offline" / "migrate_resources.sh"
-    )
-    assert migration_script.is_file()
-    assert migration_script.stat().st_mode & 0o111
+    ).exists()
     assert not (extract / "chatbot" / "models").exists()
+    sha256sums = (extract / "chatbot" / "SHA256SUMS").read_text(encoding="utf-8")
+    assert "./images/" not in sha256sums
+    assert "./models/" not in sha256sums
     docker_log = log.read_text(encoding="utf-8")
     assert docker_log.count("docker pull ghcr.io/ggml-org/llama.cpp:") == 2
     assert "llama.cpp-server-cpu:991cf50e9eb" in docker_log
     assert "llama.cpp-server-cuda:b2497f8834f5" in docker_log
     assert f"docker build --pull=false -t chatbot:{short_sha}" in docker_log
+    assert docker_log.count("docker save -o ") == 6
+    assert docker_log.count("docker image inspect --format {{.Id}}") == 6
 
     models_extract = tmp_path / "models-extract"
     _run(["unzip", "-q", str(models_zip), "-d", str(models_extract)], project)

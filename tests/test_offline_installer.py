@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import textwrap
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,19 @@ MODEL_NAMES = (
     "mtp-gemma-4-E2B-it.gguf",
     "embeddinggemma-300M-Q8_0.gguf",
 )
+IMAGE_ARCHIVE_SPECS = (
+    ("chatbot:0.2.3", "app.tar"),
+    ("chatbot/llama.cpp-server-cpu:test", "llama-cpu.tar"),
+    ("chatbot/llama.cpp-server-cuda:test", "llama-gpu.tar"),
+    ("chatbot/postgres:test", "postgres.tar"),
+    ("chatbot/chromadb:test", "chromadb.tar"),
+    ("chatbot/nginx:test", "nginx.tar"),
+)
+MOCK_DOCKER_IMAGE_REFS = (
+    *(image for image, _ in IMAGE_ARCHIVE_SPECS),
+    "chatbot:legacy",
+    "unrelated/app:1.0",
+)
 EXPECTED_REMOVAL_COMMAND = "docker rm -f current-labeled"
 EXPECTED_VOLUME_REMOVAL_COMMAND = "docker volume rm chatbot-current-data"
 
@@ -30,7 +44,17 @@ def _write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
-def _prepare_release(tmp_path: Path) -> Path:
+def _prepare_release(
+    tmp_path: Path,
+    *,
+    prepopulate_archives: bool = False,
+    prepopulate_models: bool = False,
+    images_zip: bool = True,
+    models_zip: bool = True,
+    chatbot_zip: bool = True,
+    tampered_archive: str = "",
+    stale_archives: tuple[str, ...] = (),
+) -> Path:
     release = tmp_path / "chatbot"
     for directory in (
         release / "config",
@@ -48,47 +72,37 @@ def _prepare_release(tmp_path: Path) -> Path:
         "config/offline.env.template",
         "scripts/offline/common.sh",
         "scripts/offline/configure_host.sh",
-        "scripts/offline/migrate_resources.sh",
         "scripts/offline/host_platform.sh",
         "scripts/offline/detect_network.py",
         "scripts/offline/manage_client.sh",
     )
     shutil.copy2(ROOT / "scripts/setup.sh", release / "setup.sh")
+    shutil.copy2(ROOT / "scripts/setup.sh", release / "scripts/setup.sh")
     for relative_path in source_files:
-        destination = release / relative_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / relative_path, destination)
+        shutil.copy2(ROOT / relative_path, release / relative_path)
 
-    (release / "images/runtime-images.tar").write_bytes(b"mock image archive")
-    for model_name in MODEL_NAMES:
-        (release / "models" / model_name).write_bytes(b"mock model")
-    model_checksum_lines = [
-        f"{hashlib.sha256((release / 'models' / name).read_bytes()).hexdigest()}  {name}"
-        for name in MODEL_NAMES
-    ]
-    (release / "models" / "SHA256SUMS").write_text(
-        "\n".join(model_checksum_lines) + "\n", encoding="utf-8"
-    )
-
+    archive_contents = {
+        archive: f"mock image archive {archive}".encode()
+        for _, archive in IMAGE_ARCHIVE_SPECS
+    }
     manifest = {
-        "format_version": 7,
+        "format_version": 8,
         "architecture": "x86_64",
-        "app_image": "chatbot:0.2.3",
+        "app_image": IMAGE_ARCHIVE_SPECS[0][0],
         "accelerator_images": {
-            "cpu": "chatbot/llama.cpp-server-cpu:test",
-            "gpu": "chatbot/llama.cpp-server-cuda:test",
+            "cpu": IMAGE_ARCHIVE_SPECS[1][0],
+            "gpu": IMAGE_ARCHIVE_SPECS[2][0],
         },
-        "images": [
-            "chatbot:0.2.3",
-            "chatbot/llama.cpp-server-cpu:test",
-            "chatbot/llama.cpp-server-cuda:test",
-            "chatbot/postgres:test",
-            "chatbot/chromadb:test",
-            "chatbot/nginx:test",
+        "images": [image for image, _ in IMAGE_ARCHIVE_SPECS],
+        "image_archives": [
+            {
+                "image": image,
+                "archive": archive,
+                "archive_sha256": hashlib.sha256(archive_contents[archive]).hexdigest(),
+                "image_id": f"sha256:mock-{image}",
+            }
+            for image, archive in IMAGE_ARCHIVE_SPECS
         ],
-        "runtime_images_sha256": hashlib.sha256(
-            (release / "images/runtime-images.tar").read_bytes()
-        ).hexdigest(),
     }
     (release / "release-manifest.json").write_text(
         json.dumps(manifest), encoding="utf-8"
@@ -96,17 +110,54 @@ def _prepare_release(tmp_path: Path) -> Path:
 
     checksum_paths = [
         release / "setup.sh",
-        release / "compose/docker-compose.offline.yml",
+        release / "scripts/setup.sh",
         release / "release-manifest.json",
-        *(release / relative_path for relative_path in source_files[1:]),
+        *(release / relative_path for relative_path in source_files),
     ]
-    checksum_lines = []
-    for path in checksum_paths:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        checksum_lines.append(f"{digest}  {path.relative_to(release)}")
+    checksum_lines = [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(release)}"
+        for path in checksum_paths
+    ]
     (release / "SHA256SUMS").write_text(
         "\n".join(checksum_lines) + "\n", encoding="utf-8"
     )
+
+    if prepopulate_archives:
+        for archive, content in archive_contents.items():
+            (release / "images" / archive).write_bytes(content)
+    for stale_archive in stale_archives:
+        (release / "images" / stale_archive).write_bytes(b"stale image archive")
+    model_contents = {name: f"mock model {name}".encode() for name in MODEL_NAMES}
+    models_sums = "".join(
+        f"{hashlib.sha256(content).hexdigest()}  {name}\n"
+        for name, content in model_contents.items()
+    )
+    if prepopulate_models:
+        for name, content in model_contents.items():
+            (release / "models" / name).write_bytes(content)
+        (release / "models" / "SHA256SUMS").write_text(models_sums, encoding="utf-8")
+
+    if chatbot_zip:
+        with zipfile.ZipFile(tmp_path / "chatbot.zip", "w") as zip_file:
+            for path in sorted(release.rglob("*")):
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(release)
+                if relative.parts[0] in {"images", "models"}:
+                    continue
+                zip_file.write(path, f"chatbot/{relative.as_posix()}")
+    if images_zip:
+        with zipfile.ZipFile(tmp_path / "images.zip", "w") as zip_file:
+            for _, archive in IMAGE_ARCHIVE_SPECS:
+                content = archive_contents[archive]
+                if archive == tampered_archive:
+                    content = b"tampered image archive"
+                zip_file.writestr(f"chatbot/images/{archive}", content)
+    if models_zip:
+        with zipfile.ZipFile(tmp_path / "models.zip", "w") as zip_file:
+            zip_file.writestr("chatbot/models/SHA256SUMS", models_sums)
+            for name, content in model_contents.items():
+                zip_file.writestr(f"chatbot/models/{name}", content)
     return release
 
 
@@ -213,12 +264,42 @@ def _prepare_fake_commands(tmp_path: Path) -> tuple[Path, Path, Path]:
             elif args[1] != "rm":
                 raise SystemExit(f"unsupported mock docker volume command: {args}")
         elif args[:2] == ["image", "inspect"]:
-            pass
+            tag = args[-1]
+            image_archives = dict(
+                reversed(pair.split("=", 1))
+                for pair in os.environ.get("MOCK_IMAGE_ARCHIVES", "").split()
+                if "=" in pair
+            )
+            loaded_path = Path(os.environ["MOCK_LOADED_ARCHIVES"])
+            loaded = (
+                set(loaded_path.read_text(encoding="utf-8").split())
+                if loaded_path.is_file()
+                else set()
+            )
+            archive = image_archives.get(tag, "")
+            if (
+                tag in os.environ.get("MOCK_IMAGE_MISSING", "").split()
+                and archive not in loaded
+            ):
+                raise SystemExit(1)
+            if (
+                tag in os.environ.get("MOCK_IMAGE_MISMATCH", "").split()
+                and archive not in loaded
+            ):
+                print("sha256:stale-" + tag)
+            else:
+                print("sha256:mock-" + tag)
+        elif args and args[0] == "images":
+            print(os.environ["MOCK_DOCKER_IMAGE_REFS"])
         elif args and args[0] == "run":
             if os.environ.get("MOCK_CUDA_UNAVAILABLE") == "1":
                 raise SystemExit(42)
             print("  CUDA")
-        elif args and args[0] in {"load", "rm", "start", "stop", "update"}:
+        elif args and args[0] == "load":
+            loaded_path = Path(os.environ["MOCK_LOADED_ARCHIVES"])
+            with loaded_path.open("a", encoding="utf-8") as stream:
+                stream.write(Path(args[-1]).name + "\n")
+        elif args and args[0] in {"rm", "rmi", "start", "stop", "update"}:
             pass
         else:
             raise SystemExit(f"unsupported mock docker command: {args}")
@@ -449,7 +530,9 @@ def _run_installer(
     nvidia_runtime: bool = True,
     nvidia_host_fails: bool = False,
     cuda_unavailable: bool = False,
-    runtime_images_corrupt: bool = False,
+    tampered_archive: str = "",
+    missing_images: str = " ".join(image for image, _ in IMAGE_ARCHIVE_SPECS),
+    changed_images: str = "",
     reset_incomplete: bool = False,
     platform: str = "ubuntu",
     docker_user_chain: bool = True,
@@ -462,10 +545,37 @@ def _run_installer(
     previous_firewall_state: str = "",
     labeled_container_running: bool = True,
     broad_firewall_rule: str = "",
+    images_zip: bool = True,
+    models_zip: bool = True,
+    chatbot_zip: bool = True,
+    prepopulate_archives: bool = False,
+    prepopulate_models: bool = False,
+    stale_archives: tuple[str, ...] = (),
+    installed: bool = False,
+    reinstall: bool = False,
+    folder_drift: bool = False,
+    development_layout: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
-    release = _prepare_release(tmp_path)
-    if runtime_images_corrupt:
-        (release / "images/runtime-images.tar").write_bytes(b"tampered image archive")
+    release = _prepare_release(
+        tmp_path,
+        prepopulate_archives=prepopulate_archives,
+        prepopulate_models=prepopulate_models,
+        images_zip=images_zip,
+        models_zip=models_zip,
+        chatbot_zip=chatbot_zip,
+        tampered_archive=tampered_archive,
+        stale_archives=stale_archives,
+    )
+    if installed:
+        (release / "config/.installed").write_text("", encoding="utf-8")
+        shutil.copy2(release / "config/offline.env.template", release / ".env")
+    if folder_drift:
+        drifted = release / "config/offline.env.template"
+        drifted.write_text(
+            drifted.read_text(encoding="utf-8") + "# drifted\n", encoding="utf-8"
+        )
+    if development_layout:
+        (release / "setup.sh").unlink()
     os_release = tmp_path / "os-release"
     if platform in {"ubuntu", "ubuntu-22.04"}:
         ubuntu_version = "22.04" if platform == "ubuntu-22.04" else "26.04"
@@ -510,6 +620,13 @@ def _run_installer(
             "MOCK_BROAD_FIREWALL_RULE": broad_firewall_rule,
             "MOCK_NVIDIA_HOST_FAIL": "1" if nvidia_host_fails else "0",
             "MOCK_CUDA_UNAVAILABLE": "1" if cuda_unavailable else "0",
+            "MOCK_IMAGE_ARCHIVES": " ".join(
+                f"{archive}={image}" for image, archive in IMAGE_ARCHIVE_SPECS
+            ),
+            "MOCK_IMAGE_MISSING": missing_images,
+            "MOCK_IMAGE_MISMATCH": changed_images,
+            "MOCK_LOADED_ARCHIVES": str(tmp_path / "loaded-archives.txt"),
+            "MOCK_DOCKER_IMAGE_REFS": "\n".join(MOCK_DOCKER_IMAGE_REFS),
             "MOCK_HOST_ROOT": str(mock_root),
             "MOCK_IPTABLES_STATE": str(tmp_path / "iptables-state.json"),
             "HOST_OS_RELEASE": str(os_release),
@@ -518,8 +635,12 @@ def _run_installer(
         }
     )
     environment.pop("OFFLINE_ENV", None)
+    entrypoint = "scripts/setup.sh" if development_layout else "./setup.sh"
+    arguments = ["bash", entrypoint, "--gpu", gpu]
+    if reinstall:
+        arguments.append("--reinstall")
     result = subprocess.run(
-        ["bash", "./setup.sh", "--gpu", gpu],
+        arguments,
         cwd=release,
         env=environment,
         capture_output=True,
@@ -532,7 +653,9 @@ def _run_installer(
 def test_installer_completes_with_five_clients_and_host_automation(
     tmp_path: Path,
 ) -> None:
-    result, release, command_log, mock_root = _run_installer(tmp_path)
+    result, release, command_log, mock_root = _run_installer(
+        tmp_path, stale_archives=("runtime-images.tar",)
+    )
 
     assert result.returncode == 0, result.stdout + result.stderr
     environment_text = (release / ".env").read_text(encoding="utf-8")
@@ -580,7 +703,9 @@ def test_installer_completes_with_five_clients_and_host_automation(
     assert volume_removal_line == EXPECTED_VOLUME_REMOVAL_COMMAND
     assert "generic-project-volume" not in volume_removal_line
     assert "unrelated-volume" not in volume_removal_line
-    assert commands.count("docker load -i ") == 1
+    assert commands.count("docker load -i ") == 6
+    assert "docker rmi chatbot:legacy" in commands
+    assert commands.count("docker rmi ") == 1
     assert any(
         line == "sudo /usr/sbin/iptables -m conntrack -h"
         for line in commands.splitlines()
@@ -641,8 +766,24 @@ def test_installer_completes_with_five_clients_and_host_automation(
     ]
     assert (release / "config/.installed").is_file()
     install_log = (release / "install.log").read_text(encoding="utf-8")
-    assert "STEP 15/15" in install_log
+    assert "STEP 19/19" in install_log
     assert "Generated 5 unique client credential file(s)" in install_log
+    assert "Extracting new image archive: images/app.tar" in install_log
+    assert "Extracting model files from models.zip" in install_log
+    assert "Removing stale image archive: images/runtime-images.tar" in install_log
+    assert not (release / "images" / "runtime-images.tar").exists()
+
+    assert (
+        "Server address for other computers: http://192.168.50.10:18080"
+        in result.stdout
+    )
+    assert "Client credential files (one file per client computer):" in result.stdout
+    for number in range(1, 6):
+        assert f"{release}/config/clients/client-{number:02d}.txt" in result.stdout
+    assert (
+        'curl -H "Authorization: Bearer <API key>" '
+        "http://192.168.50.10:18080/api/v1/ready" in result.stdout
+    )
 
 
 def test_installer_accepts_ubuntu_2204(tmp_path: Path) -> None:
@@ -822,19 +963,128 @@ def test_installer_rejects_broad_rhel_firewalld_rule_before_cleanup(
     assert "docker rm -f" not in command_log.read_text(encoding="utf-8")
 
 
-def test_installer_rejects_tampered_runtime_image_archive_before_load(
+def test_installer_rejects_tampered_image_archive_before_load(
     tmp_path: Path,
 ) -> None:
     result, release, command_log, _ = _run_installer(
-        tmp_path, gpu="no", runtime_images_corrupt=True
+        tmp_path, gpu="no", tampered_archive="app.tar"
     )
 
     assert result.returncode != 0
     assert not (release / ".env").exists()
-    assert "runtime image archive checksum does not match" in result.stdout
+    assert (
+        "image archive checksum does not match the release manifest: images/app.tar"
+        in result.stdout
+    )
     commands = command_log.read_text(encoding="utf-8")
     assert "docker load -i" not in commands
     assert "docker rm -f" not in commands
+
+
+def test_installer_update_flow_loads_only_missing_or_changed_images(
+    tmp_path: Path,
+) -> None:
+    result, release, command_log, _ = _run_installer(
+        tmp_path,
+        gpu="no",
+        images_zip=False,
+        prepopulate_archives=True,
+        prepopulate_models=True,
+        missing_images="chatbot:0.2.3",
+        changed_images="chatbot/llama.cpp-server-cuda:test",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    commands = command_log.read_text(encoding="utf-8")
+    assert commands.count("docker load -i ") == 2
+    assert f"docker load -i {release}/images/app.tar" in commands
+    assert f"docker load -i {release}/images/llama-gpu.tar" in commands
+    assert (
+        "Image already present and unchanged, skipping load: "
+        "chatbot/llama.cpp-server-cpu:test" in result.stdout
+    )
+    assert "images.zip not provided" in result.stdout
+    assert "Models already match models.zip; skipping extraction" in result.stdout
+    assert "Extracting new image archive" not in result.stdout
+    assert "Extracting model files from models.zip" not in result.stdout
+
+
+def test_installer_refuses_completed_install_without_reinstall(
+    tmp_path: Path,
+) -> None:
+    result, release, _, _ = _run_installer(tmp_path, installed=True)
+
+    assert result.returncode != 0
+    assert "This folder is already configured." in result.stdout
+    assert "--reinstall" in result.stdout
+    assert (release / "config/.installed").is_file()
+    assert (release / ".env").is_file()
+
+
+def test_installer_reinstall_wipes_completed_install(tmp_path: Path) -> None:
+    result, release, command_log, _ = _run_installer(
+        tmp_path, installed=True, reinstall=True
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (release / "config/.installed").is_file()
+    commands = command_log.read_text(encoding="utf-8")
+    assert "down -v --remove-orphans" in commands
+    install_log = (release / "install.log").read_text(encoding="utf-8")
+    assert "STEP 19/19" in install_log
+    assert "Generated 5 unique client credential file(s)" in install_log
+
+
+def test_installer_rejects_chatbot_folder_drift_before_changes(
+    tmp_path: Path,
+) -> None:
+    result, release, command_log, _ = _run_installer(tmp_path, folder_drift=True)
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert (
+        "chatbot folder does not match chatbot.zip: config/offline.env.template "
+        "differs" in result.stdout
+    )
+    commands = command_log.read_text(encoding="utf-8") if command_log.is_file() else ""
+    assert "docker load -i" not in commands
+    assert "docker rm -f" not in commands
+
+
+def test_installer_reports_missing_chatbot_zip(tmp_path: Path) -> None:
+    result, release, _, _ = _run_installer(tmp_path, chatbot_zip=False)
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert (
+        f"Required release archive not found: {tmp_path}/chatbot.zip" in result.stdout
+    )
+    assert "Copy chatbot.zip into" in result.stdout
+
+
+def test_installer_reports_missing_archive_for_missing_image(
+    tmp_path: Path,
+) -> None:
+    result, release, command_log, _ = _run_installer(
+        tmp_path, gpu="no", images_zip=False
+    )
+
+    assert result.returncode != 0
+    assert not (release / ".env").exists()
+    assert "Image archives not available yet: app.tar" in result.stdout
+    assert "Docker image is missing and images/app.tar was not found." in result.stdout
+    assert f"Copy the updated images/app.tar into {release}/images" in result.stdout
+    assert "docker load -i" not in command_log.read_text(encoding="utf-8")
+
+
+def test_installer_supports_development_layout_without_root_entrypoint(
+    tmp_path: Path,
+) -> None:
+    result, release, _, _ = _run_installer(tmp_path, gpu="no", development_layout=True)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (release / "setup.sh").exists()
+    assert (release / "config/.installed").is_file()
 
 
 def test_installer_rejects_under_capacity_gpu_before_cleanup(
@@ -1094,7 +1344,7 @@ def test_installer_rejects_gpu_when_cuda_container_is_unavailable(
 
 
 def test_installer_online_mode_delegates_to_accelerator(tmp_path: Path) -> None:
-    release = _prepare_release(tmp_path)
+    release = _prepare_release(tmp_path, prepopulate_models=True)
     for relative_path in (
         "compose/docker-compose.yml",
         "compose/docker-compose.gpu.yml",

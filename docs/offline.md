@@ -2,18 +2,19 @@
 
 ## 1. Delivery model
 
-The final deliverable is three files created on an Internet-connected preparation
-computer:
+The final deliverable is created on an Internet-connected preparation computer:
 
 ```text
-/home/superman/workspaces/chatbot.zip   committed Git HEAD source and installer
-/home/superman/workspaces/images.zip    exported Docker runtime images
-/home/superman/workspaces/models.zip    the four GGUF model files with checksums
+/home/superman/workspaces/chatbot.zip   committed Git HEAD source and installer (required every release)
+/home/superman/workspaces/images.zip   per-image Docker archives (transfer only when image content changed)
+/home/superman/workspaces/models.zip    the four GGUF model files with checksums (transfer only when models changed)
+/home/superman/workspaces/images/       the same per-image archives as individual files, for update delivery
 ```
 
-Extract all three ZIPs into the same parent directory only when it does not already
-contain `chatbot/`. This prevents a previous release entrypoint from remaining after an
-overlay extraction. Together they create a normal repository-like directory:
+On the target, only `chatbot.zip` must be unzipped. `setup.sh` finds the three ZIPs in
+the same parent directory as the release folder (override with `--zip-dir DIR` or
+`ZIP_DIR`), verifies their integrity, and itself extracts the image archives and model
+files it is missing. A normal repository-like directory results:
 
 ```text
 chatbot/
@@ -24,8 +25,8 @@ chatbot/
 ├── scripts/offline/             start, stop, client, backup, restore tools
 ├── data/                        packaged knowledge and configured figures
 ├── tests/                       source-level tests
-├── images/runtime-images.tar    preloaded application and service images
-├── models/                       the four GGUF model files extracted from models.zip
+├── images/                       per-image Docker archives filled by setup.sh
+├── models/                       the four GGUF model files filled by setup.sh
 ├── compose/                       Authoritative Compose definitions
 │   ├── docker-compose.yml         online base profile
 │   ├── docker-compose.gpu.yml     online GPU override
@@ -37,14 +38,22 @@ chatbot/
 ```
 
 `chatbot.zip` contains source read from the committed `git archive HEAD`, plus
-the generated release manifest, checksums, and root installer. The `compose/`
-directory is the only authoritative location for Compose definitions; the installer
-and lifecycle scripts select the needed base and optional GPU overlay directly, without
-copying or generating a root Compose file. `images.zip` contains
-only `chatbot/images/runtime-images.tar`. `models.zip` contains
+the generated release manifest, checksums, and root installer. It is the source of
+truth: on every run `setup.sh` verifies the extracted folder matches `chatbot.zip`
+file-for-file and refreshes `SHA256SUMS` and `release-manifest.json` from it. The
+`compose/` directory is the only authoritative location for Compose definitions; the
+installer and lifecycle scripts select the needed base and optional GPU overlay
+directly, without copying or generating a root Compose file. `images.zip` contains
+one `docker save` archive per runtime image (`app.tar`, `llama-cpu.tar`,
+`llama-gpu.tar`, `postgres.tar`, `chromadb.tar`, `nginx.tar`). `models.zip` contains
 `chatbot/models/` with the four GGUF files and a `SHA256SUMS` file. All three
 ZIPs exclude Git metadata, secrets, virtual environments, caches, runtime databases,
 and backups.
+
+For an update release, `make prepare` also writes the individual archives to
+`/home/superman/workspaces/images/`. Transfer only `chatbot.zip` plus the archives
+whose images changed, copying them into the target's existing `chatbot/images/`; see
+section 6 for the update procedure.
 
 Extracting `models.zip` places these four files in `chatbot/models/`:
 
@@ -80,8 +89,9 @@ Only Nginx publishes a host port. FastAPI, llama.cpp, EmbeddingGemma, ChromaDB,
 and PostgreSQL are not directly reachable from the LAN.
 
 The target does not run `docker build`, `docker pull`, `uv sync`, or any package
-download during setup or normal operation. It loads all runtime images from
-`images/runtime-images.tar` and starts with `--no-build --pull never`.
+download during setup or normal operation. It loads runtime images from the per-image
+archives in `chatbot/images/`, only for images missing from Docker or changed since
+the last release, and starts with `--no-build --pull never`.
 
 The host `.venv` is intentionally excluded. The application image already contains
 its own `/app/.venv` with all locked runtime dependencies. Installation and
@@ -107,10 +117,11 @@ Supported target profiles:
 - for GPU mode only: NVIDIA GTX 1660 Super 6 GB or better, NVIDIA driver, NVIDIA
   Container Toolkit, and `nvidia-smi`;
 - a dedicated chatbot host: installation removes only containers and volumes with this
-  release folder's path-derived Compose project label for a fresh database; resources
-  from a previous naming scheme require the isolated migration command in section 6.1.
-  Unrelated containers and volumes, Docker images, GGUF models, and source files are
-  preserved;
+  release folder's path-derived Compose project label for a fresh database. Containers
+  or volumes left by an older naming scheme are neither removed nor reused; list them
+  with `docker ps -a` / `docker volume ls -q` and remove the reviewed ones manually with
+  `docker rm` and `docker volume rm`. Unrelated containers and volumes, Docker images,
+  GGUF models, and source files are preserved;
 - a reserved/static LAN IPv4 address is recommended so client URLs remain stable.
 
 Check before transfer:
@@ -147,11 +158,14 @@ The builder:
 2. exports the exact committed source with `git archive HEAD`;
 3. pulls third-party images pinned by digest;
 4. builds the Chatbot application image from that committed source;
-5. exports all runtime images to `images/runtime-images.tar`;
-6. records the source commit and required image tags in `release-manifest.json`;
+5. saves each runtime image to its own archive in `images/` (`app.tar`,
+   `llama-cpu.tar`, `llama-gpu.tar`, `postgres.tar`, `chromadb.tar`, `nginx.tar`)
+   and copies those files next to the ZIPs for update delivery;
+6. records the source commit, the required image tags, each archive's SHA-256
+   checksum, and each image's Docker image id in `release-manifest.json`;
 7. creates `SHA256SUMS` for source/configuration files and a separate
-   `models/SHA256SUMS` for the GGUF files; `release-manifest.json` records the
-   SHA-256 checksum of `images/runtime-images.tar` and is itself source-checksummed;
+   `models/SHA256SUMS` for the GGUF files; `release-manifest.json` is itself
+   source-checksummed;
 8. creates and integrity-checks all three ZIPs before publishing them, and removes
    already-published outputs if publishing a later one fails.
 
@@ -168,11 +182,11 @@ make prepare
 
 ## 5. Transfer and extract
 
-Use exFAT or ext4 media, not FAT32. Copy `chatbot.zip`, `images.zip`, and
-`models.zip`.
+Use exFAT or ext4 media, not FAT32. Copy `chatbot.zip` and, when their content
+changed since the previous release, `images.zip` and `models.zip`.
 
-On the target, extract all three ZIPs from the same parent directory so they merge
-into one `chatbot/` folder:
+On the target, unzip only `chatbot.zip`. Leave the three ZIPs together in the same
+parent directory; the installer reads images and models from there directly:
 
 ```bash
 mkdir -p /home/superman/workspaces
@@ -182,8 +196,6 @@ test ! -e /home/superman/workspaces/chatbot || {
 }
 cd /home/superman/workspaces
 unzip /media/$USER/<USB>/chatbot.zip
-unzip /media/$USER/<USB>/images.zip
-unzip /media/$USER/<USB>/models.zip
 cd chatbot
 ```
 
@@ -191,13 +203,21 @@ The result should be:
 
 ```text
 /home/superman/workspaces/chatbot
+/home/superman/workspaces/chatbot.zip     (and images.zip / models.zip when provided)
 ```
 
-The four GGUF model files and their `SHA256SUMS` are placed in:
+`setup.sh` verifies the ZIPs, confirms the extracted source matches `chatbot.zip`,
+then fills `chatbot/images/` with the per-image archives and `chatbot/models/` with
+the four GGUF files and their `SHA256SUMS`, extracting only what is missing or
+changed:
 
 ```text
+/home/superman/workspaces/chatbot/images
 /home/superman/workspaces/chatbot/models
 ```
+
+If the ZIPs are stored somewhere else, point the installer at that directory with
+`./setup.sh --zip-dir /media/$USER/<USB>`.
 
 ## 6. Run the installer
 
@@ -224,7 +244,7 @@ dependency setup command. `--gpu yes` requires and validates a 6 GiB NVIDIA GPU,
 NVIDIA host, and the loaded CUDA image; it fails instead of falling back to CPU. `--gpu no` installs CPU-only.
 `--mode` defaults to
 `offline`; `--mode online` builds and pulls images via `accelerator.sh online` instead
-of loading `images/runtime-images.tar`, and skips the offline firewall, client
+of loading the per-image archives, and skips the offline firewall, client
 credential, and boot-marker hardening. The chosen `cpu` or `gpu` profile is written to
 `.env` and reused by all offline lifecycle commands. It is not re-detected after
 installation.
@@ -250,28 +270,44 @@ target. `LAN_CIDR` must contain `SERVER_ADDRESS`. `CLIENT_COUNT` accepts 1 throu
 
 The installer performs these actions:
 
-1. validates required files, commands, architecture, and installation state;
-2. detects and validates the server address, interface, and trusted LAN CIDR;
-3. checks four model filenames and their `models/SHA256SUMS` checksums, release checksums, the manifest-recorded runtime image archive checksum, free space, Docker, and the selected profile;
-4. loads images only after the archive checksum passes, confirms CPU and CUDA image tags, and validates CUDA container access and at least 6 GiB on every NVIDIA GPU before cleanup;
-5. preflights the selected host firewall backend, SELinux on RHEL, conntrack support,
+1. validates required files, commands, architecture, installation state, and the
+   integrity of `chatbot.zip` (required on every run) plus `images.zip` and
+   `models.zip` when they are provided;
+2. verifies the extracted folder matches `chatbot.zip` file-for-file, refreshing
+   `SHA256SUMS` and `release-manifest.json` from the ZIP;
+3. fills `images/` with the per-image archives listed in the manifest, extracting
+   only new or changed archives from `images.zip`, and removes archives no longer
+   listed in the manifest;
+4. fills `models/` with the four GGUF files, extracting them from `models.zip` only
+   when the existing files do not already match its checksums;
+5. detects and validates the server address, interface, and trusted LAN CIDR;
+6. checks four model filenames and their `models/SHA256SUMS` checksums, release
+   checksums, free space, Docker, and the selected profile;
+7. loads only images missing from Docker or whose local image id differs from the
+   manifest, requiring each archive's recorded checksum to pass first, and validates
+   CUDA container access and at least 6 GiB on every NVIDIA GPU before cleanup;
+8. preflights the selected host firewall backend, SELinux on RHEL, conntrack support,
    and Docker's `DOCKER-USER` chain before deleting current chatbot data;
-6. for GPU only, requires successful NVIDIA total-memory and process queries, warns
+9. for GPU only, requires successful NVIDIA total-memory and process queries, warns
    and continues when total residual use is below 1024 MiB, and stops at 1024 MiB or more;
-7. validates that the selected HTTP bind address/port is available;
-8. force-removes only containers and volumes carrying this release folder's
-   path-derived Compose project label, while preserving unrelated Docker resources;
-9. creates `.env`, service passwords, persistent directories, and configured client keys
-   (five by default);
-10. starts and health-checks database, vector, and model services;
-11. indexes local knowledge and reports progress for every configured figure;
-12. enables LAN-only UFW rules on Ubuntu or permanent firewalld rules on RHEL, plus a
+10. validates that the selected HTTP bind address/port is available;
+11. force-removes only containers and volumes carrying this release folder's
+    path-derived Compose project label, and removes leftover chatbot images from
+    previous releases, while preserving unrelated Docker resources;
+12. creates `.env`, service passwords, persistent directories, and configured client keys
+    (five by default);
+13. starts and health-checks database, vector, and model services;
+14. indexes local knowledge and reports progress for every configured figure;
+15. enables LAN-only UFW rules on Ubuntu or permanent firewalld rules on RHEL, plus a
     persistent `DOCKER-USER` firewall service;
-13. enables Docker at boot, starts Nginx/FastAPI, and calls authenticated readiness;
-14. verifies every long-running chatbot container uses `restart: unless-stopped`.
+16. enables Docker at boot, starts Nginx/FastAPI, and calls authenticated readiness;
+17. verifies every long-running chatbot container uses `restart: unless-stopped` and
+    prints the server address, the client credential file paths, and a test command.
 
 After successful setup, `setup.sh` writes `config/.installed` and refuses to run
-again; use the lifecycle commands in section 9. A normal installation failure rolls
+again; use the lifecycle commands in section 9 for normal operation, or pass
+`--reinstall` to wipe and reinstall (fresh database and new client keys), as in
+section 6.1. A normal installation failure rolls
 back generated chatbot containers, project volumes, secrets, and configuration. Selected
 chatbot containers and volumes are intentionally not restored, ensuring that a retry in
 the same folder starts with a fresh PostgreSQL database. Docker images and model files
@@ -287,25 +323,29 @@ reset and retry with:
 RESET_INCOMPLETE_INSTALL=YES ./setup.sh --gpu no
 ```
 
-### 6.1. Migrate resources from an earlier naming scheme
+### 6.1. Update an installed release
 
-The chatbot-only release does not guess or automatically delete resources from an
-older naming scheme. Before reusing a host, list the exact containers and volumes that
-belong to the previous deployment, review the list, and pass only those resources to
-the isolated migration command:
+`make prepare` also writes the per-image archives next to the ZIPs, so an update
+does not retransfer unchanged images:
+
+1. on the preparation computer, run `make prepare`;
+2. transfer the new `chatbot.zip` and, from the `images/` directory next to it,
+   only the archives whose images changed (for example `app.tar` and
+   `llama-gpu.tar`); also transfer a new `models.zip` only when the model files
+   changed;
+3. on the target, unzip the new `chatbot.zip` over the existing folder, copy the
+   changed archives into `chatbot/images/`, and reinstall:
 
 ```bash
-docker ps -a --format '{{.Names}}'
-docker volume ls -q
-./scripts/offline/migrate_resources.sh --confirm \
-  --container <previous-container-name-or-id> \
-  --volume <previous-volume-name>
+unzip -o /media/$USER/<USB>/chatbot.zip -d /home/superman/workspaces
+cp /media/$USER/<USB>/images/app.tar /home/superman/workspaces/chatbot/images/
+cd /home/superman/workspaces/chatbot
+./setup.sh --gpu no --reinstall
 ```
 
-Repeat the `--container` and `--volume` options as needed. The command is not called by
-`setup.sh`, accepts no wildcards, and requires `--confirm`. Handle any previous host
-firewall unit, program, state file, or iptables chain separately with the host's
-administration tools before enabling the new chatbot firewall service.
+`--reinstall` wipes and reinstalls the stack in the same folder: a fresh database,
+new client keys, and new `.env` secrets. Unchanged image archives and model files
+are verified and skipped, so only changed content is extracted and loaded.
 
 ## 7. Generated secrets and client files
 
@@ -523,9 +563,9 @@ Initial multimodal descriptions can take several minutes each on a 6 GB GPU.
 
 The installer prints chatbot and dependency logs before rollback. Selected chatbot
 volumes are removed before configuration, preventing an old PostgreSQL volume and new
-password from being mixed. Resources from an earlier naming scheme are not selected;
-use section 6.1 when a manual migration is needed. Correct the reported cause, then
-rerun in the same folder. On
+password from being mixed. Resources from an earlier naming scheme are neither
+selected nor reused; remove reviewed leftovers manually. Correct the reported cause,
+then rerun in the same folder. On
 RHEL, keep SELinux
 `Enforcing`; inspect recent denials with `sudo ausearch -m AVC -ts recent` rather than
 disabling it.
@@ -542,8 +582,7 @@ measurement succeeded.
 Only containers and volumes with this release folder's path-derived Compose project
 label are removed to prevent stale PostgreSQL credentials from breaking API startup.
 Unrelated containers and volumes continue unchanged; Docker
-images, GGUF models, and source files are preserved. Resources from an earlier naming
-scheme require the explicit, isolated migration command in section 6.1.
+images, GGUF models, and source files are preserved.
 
 ### HTTP 401
 
@@ -569,10 +608,21 @@ make status MODE=offline
 The API becomes ready only after functional model, embedding, database, index, and
 classifier warmup checks succeed.
 
-### Missing image
+### Missing image or image archive
 
-Offline startup intentionally fails rather than pulling. Rebuild all three release
-ZIPs on the preparation computer and transfer them again.
+Offline startup intentionally fails rather than pulling. The installer names the
+missing image and archive (for example `images/app.tar`). For an update, copy that
+archive from the preparation computer's `images/` directory into
+`chatbot/images/` and re-run; for a first installation, transfer `images.zip` next to
+`chatbot.zip` and re-run.
+
+### Installer says the chatbot folder does not match chatbot.zip
+
+The extracted source differs from `chatbot.zip` (a stale folder or a mixed release).
+On the target, unzip the current `chatbot.zip` over the folder with
+`unzip -o chatbot.zip -d <parent>` and re-run. On the preparation computer, rebuild
+all release ZIPs from one `make prepare` run so the ZIPs, archives, and manifest
+cannot disagree.
 
 ## 13. What the current Tailscale test proved
 
@@ -590,10 +640,11 @@ firewall, reboot, and backup/restore tests.
 
 With target WAN access disconnected:
 
-- extract `chatbot.zip`, `images.zip`, and `models.zip` under `/home/superman/workspaces`;
+- unzip `chatbot.zip` and place `images.zip` and `models.zip` next to it under
+  `/home/superman/workspaces`;
 - reserve the target's LAN IPv4 address and confirm the installer selects its CIDR;
 - run `./setup.sh --gpu yes` (or `--gpu no`) successfully and confirm five credential files are generated;
-- confirm only containers and volumes with the release folder's project label were removed, unrelated resources remain, and every new service is healthy; migrate any earlier-naming resources separately;
+- confirm only containers and volumes with the release folder's project label were removed, unrelated resources remain, and every new service is healthy; remove any earlier-naming leftovers manually;
 - confirm authenticated `/api/v1/ready` reports `ready`;
 - test prepared, generated, figure, streaming, and delete paths;
 - verify invalid keys return HTTP 401;

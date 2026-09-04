@@ -20,7 +20,7 @@ help:
 	@echo "  make stop [MODE=...]       Stop the selected stack"
 	@echo "  make status [MODE=...]     Show the selected stack status"
 	@echo "  make index [MODE=...]      Rebuild the selected stack indexes"
-	@echo "  make prepare               Create chatbot.zip, images.zip, and models.zip from Git HEAD"
+	@echo "  make prepare               Create the release ZIPs and per-image archives from Git HEAD"
 	@echo "  make clean                 Remove generated Python caches"
 	@echo
 	@echo "Variables: MODE=online|offline ACCELERATOR=auto|cpu|gpu"

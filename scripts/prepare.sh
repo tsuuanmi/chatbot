@@ -18,6 +18,13 @@ LLAMA_GPU_IMAGE="chatbot/llama.cpp-server-cuda:b2497f8834f5"
 POSTGRES_IMAGE="chatbot/postgres:57c72fd2a128"
 CHROMA_IMAGE="chatbot/chromadb:1e0b73a187a2"
 NGINX_IMAGE="chatbot/nginx:65645c7bb6a0"
+APP_ARCHIVE="app.tar"
+LLAMA_CPU_ARCHIVE="llama-cpu.tar"
+LLAMA_GPU_ARCHIVE="llama-gpu.tar"
+POSTGRES_ARCHIVE="postgres.tar"
+CHROMA_ARCHIVE="chromadb.tar"
+NGINX_ARCHIVE="nginx.tar"
+ARCHIVE_OUTPUT_DIR="$(dirname "$IMAGES_OUTPUT")/images"
 MODEL_NAMES=(
   gemma-4-E2B-it-Q4_K_M.gguf
   mmproj-gemma-4-E2B-it-bf16.gguf
@@ -43,6 +50,14 @@ if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
 fi
 source_commit="$(git -C "$ROOT" rev-parse HEAD)"
 APP_IMAGE="chatbot:${source_commit:0:12}"
+IMAGE_ARCHIVE_SPECS=(
+  "$APP_IMAGE $APP_ARCHIVE"
+  "$LLAMA_CPU_IMAGE $LLAMA_CPU_ARCHIVE"
+  "$LLAMA_GPU_IMAGE $LLAMA_GPU_ARCHIVE"
+  "$POSTGRES_IMAGE $POSTGRES_ARCHIVE"
+  "$CHROMA_IMAGE $CHROMA_ARCHIVE"
+  "$NGINX_IMAGE $NGINX_ARCHIVE"
+)
 for model in "${MODEL_NAMES[@]}"; do
   [[ -f "$ROOT/models/$model" ]] || {
     echo "Missing model: $ROOT/models/$model" >&2
@@ -82,6 +97,8 @@ trap cleanup EXIT
 mkdir -p "$stage/images" "$stage/models" \
   "$(dirname "$CHATBOT_OUTPUT")" "$(dirname "$IMAGES_OUTPUT")" \
   "$(dirname "$MODELS_OUTPUT")"
+rm -rf "$ARCHIVE_OUTPUT_DIR"
+mkdir -p "$ARCHIVE_OUTPUT_DIR"
 
 git -C "$ROOT" archive --format=tar "$source_commit" | tar -C "$stage" -xf -
 [[ -f "$stage/scripts/setup.sh" ]] || {
@@ -111,15 +128,21 @@ docker tag "$POSTGRES_SOURCE" "$POSTGRES_IMAGE"
 docker tag "$CHROMA_SOURCE" "$CHROMA_IMAGE"
 docker tag "$NGINX_SOURCE" "$NGINX_IMAGE"
 DOCKER_BUILDKIT=1 docker build --pull=false -t "$APP_IMAGE" "$stage"
-docker save -o "$stage/images/runtime-images.tar" \
-  "$APP_IMAGE" "$LLAMA_CPU_IMAGE" "$LLAMA_GPU_IMAGE" "$POSTGRES_IMAGE" \
-  "$CHROMA_IMAGE" "$NGINX_IMAGE"
 
-python3 - "$stage/release-manifest.json" "$source_commit" "$APP_IMAGE" \
-  "$LLAMA_CPU_IMAGE" "$LLAMA_GPU_IMAGE" "$POSTGRES_IMAGE" "$CHROMA_IMAGE" \
-  "$NGINX_IMAGE" "$LLAMA_CPU_SOURCE" "$LLAMA_GPU_SOURCE" "$POSTGRES_SOURCE" \
+image_archives_tsv=""
+for spec in "${IMAGE_ARCHIVE_SPECS[@]}"; do
+  read -r image archive <<< "$spec"
+  docker save -o "$stage/images/$archive" "$image"
+  archive_sha256="$(sha256sum "$stage/images/$archive" | awk '{print $1}')"
+  image_id="$(docker image inspect --format '{{.Id}}' "$image")"
+  image_archives_tsv+="$(printf '%s\t%s\t%s\t%s' \
+    "$image" "$archive" "$archive_sha256" "$image_id")"$'\n'
+  cp "$stage/images/$archive" "$ARCHIVE_OUTPUT_DIR/$archive"
+done
+
+python3 - "$stage/release-manifest.json" "$source_commit" "$image_archives_tsv" \
+  "$LLAMA_CPU_SOURCE" "$LLAMA_GPU_SOURCE" "$POSTGRES_SOURCE" \
   "$CHROMA_SOURCE" "$NGINX_SOURCE" <<'PY'
-import hashlib
 import json
 import platform
 import sys
@@ -127,31 +150,36 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 path = Path(sys.argv[1])
-images = [sys.argv[3]] + sys.argv[4:9]
-source_images = sys.argv[9:14]
-runtime_images_digest = hashlib.sha256()
-with (path.parent / "images" / "runtime-images.tar").open("rb") as archive:
-    for chunk in iter(lambda: archive.read(1024 * 1024), b""):
-        runtime_images_digest.update(chunk)
-runtime_images_sha256 = runtime_images_digest.hexdigest()
+image_archives = []
+for line in sys.argv[3].splitlines():
+    image, archive, archive_sha256, image_id = line.split("\t")
+    image_archives.append(
+        {
+            "image": image,
+            "archive": archive,
+            "archive_sha256": archive_sha256,
+            "image_id": image_id,
+        }
+    )
+images = [entry["image"] for entry in image_archives]
 manifest = {
-    "format_version": 7,
+    "format_version": 8,
     "source_commit": sys.argv[2],
     "architecture": "x86_64",
     "created_at": datetime.now(timezone.utc).isoformat(),
     "builder_architecture": platform.machine(),
-    "app_image": sys.argv[3],
-    "accelerator_images": {"cpu": sys.argv[4], "gpu": sys.argv[5]},
+    "app_image": images[0],
+    "accelerator_images": {"cpu": images[1], "gpu": images[2]},
     "images": images,
-    "image_sources": dict(zip(images[1:], source_images, strict=True)),
-    "runtime_images_sha256": runtime_images_sha256,
+    "image_sources": dict(zip(images[1:], sys.argv[4:9], strict=True)),
+    "image_archives": image_archives,
 }
 path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 PY
 
 (
   cd "$stage"
-  find . -type f ! -name SHA256SUMS ! -path './images/runtime-images.tar' \
+  find . -type f ! -name SHA256SUMS ! -path './images/*' \
     ! -path './models/*' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
   sha256sum -c SHA256SUMS
 )
@@ -182,5 +210,9 @@ models_published=true
 echo "Created source: $CHATBOT_OUTPUT"
 echo "Created Docker images: $IMAGES_OUTPUT"
 echo "Created GGUF models: $MODELS_OUTPUT"
+echo "Created individual image archives in: $ARCHIVE_OUTPUT_DIR"
 echo "Source commit: $source_commit"
-echo "Extract all three ZIPs into a clean parent directory before running setup.sh."
+echo "First install: unzip chatbot.zip into a clean parent directory, keep images.zip"
+echo "and models.zip next to it, then run chatbot/setup.sh."
+echo "Updates: unzip the new chatbot.zip over the chatbot folder, copy changed archives from"
+echo "$ARCHIVE_OUTPUT_DIR into chatbot/images/, and re-run chatbot/setup.sh --reinstall."

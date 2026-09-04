@@ -69,6 +69,11 @@ Thumbs.db
 # Local uploads/models
 /models/
 
+# Release artifacts refreshed by the offline installer
+/images/
+/SHA256SUMS
+/release-manifest.json
+
 # Runtime databases and offline backups
 databases/
 runtime/

@@ -166,8 +166,9 @@ Output:
 
 ```text
 /home/superman/workspaces/chatbot.zip   committed Git HEAD source and installer
-/home/superman/workspaces/images.zip    exported Docker runtime images
+/home/superman/workspaces/images.zip    per-image Docker archives
 /home/superman/workspaces/models.zip    the four GGUF model files with checksums
+/home/superman/workspaces/images/       the same archives as individual files, for updates
 ```
 
 Preparation requires a clean Git working tree and the four GGUF files present in
@@ -175,7 +176,7 @@ Preparation requires a clean Git working tree and the four GGUF files present in
 manifest records that commit. The GGUF models are packaged into `models.zip` with a
 `SHA256SUMS` file; they are not part of `chatbot.zip` or `images.zip`. Python
 runtime dependencies, including those used to index documents and figures, are already
-installed in the application image inside `images.zip`. The image archive includes
+installed in the application image. The image archives include
 both pinned CPU and CUDA llama.cpp servers so one release can install on either host
 type.
 
@@ -184,27 +185,28 @@ Enterprise Linux 8.10, all with rootful Docker Engine and the Compose plugin; Po
 is not supported. Docker must route IPv4 `FORWARD` traffic first through its
 `DOCKER-USER` iptables chain for LAN port isolation. RHEL keeps SELinux Enforcing and uses firewalld.
 
-On the dedicated target computer, extract all three ZIPs into a new, empty directory:
+On the dedicated target computer, unzip only `chatbot.zip` and leave the three ZIPs
+in the same parent directory; the installer extracts image archives and model files
+itself:
 
 ```bash
 cd /home/superman/workspaces
 unzip /path/to/chatbot.zip
-unzip /path/to/images.zip
-unzip /path/to/models.zip
 cd chatbot
 ./setup.sh --gpu no          # CPU profile
 # or: ./setup.sh --gpu yes   # require the NVIDIA GPU profile
 ```
 
 `./setup.sh` is the offline release entrypoint; `make setup` remains the development
-dependency setup command.
+dependency setup command. Re-running it in a configured folder requires
+`--reinstall`, which wipes and reinstalls with a fresh database and new client keys;
+see `docs/offline.md` for the lightweight update procedure.
 
 The installer detects the primary LAN IPv4 address and subnet, removes only containers
 and volumes bearing this release folder's path-derived Compose project label, preserves
 unrelated Docker resources, images, and GGUF models, and generates five client
-credentials. Resources from a
-previous naming scheme require the explicit migration utility documented in
-`docs/offline.md`; the installer does not guess them. It configures LAN-only host
+credentials. Leftovers from a previous naming scheme are neither removed nor reused;
+remove reviewed ones manually. It configures LAN-only host
 firewall rules (UFW on Ubuntu, firewalld on RHEL) and Docker port isolation, and enables
 Docker boot startup. Numbered progress is shown on screen and
 saved to `install.log`;
