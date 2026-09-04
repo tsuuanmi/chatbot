@@ -69,6 +69,9 @@ prepare_deployed_clone() {
       --exclude='./runtime/*' \
       -cf - .
   ) | tar -C "$deployment_dir" -xf -
+  # The installer umask protects generated secrets, but the app container must read
+  # packaged knowledge and figures through its read-only bind mounts.
+  chmod -R a+rX "$deployment_dir/data"
 
   entry_path="$SCRIPT_DIR/$(basename "$0")"
   entry_relative="${entry_path#"$INSTALL_DIR"/}"

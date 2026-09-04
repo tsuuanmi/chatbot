@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import socket
+import stat
 import subprocess
 import textwrap
 import zipfile
@@ -65,6 +66,9 @@ def _prepare_release(
         release / "compose",
     ):
         directory.mkdir(parents=True)
+    figure_file = release / "data/figures/figure.png"
+    figure_file.parent.mkdir(parents=True)
+    figure_file.write_bytes(b"mock figure")
 
     source_files = (
         "compose/docker-compose.offline.yml",
@@ -119,6 +123,7 @@ def _prepare_release(
         release / "setup.sh",
         release / "scripts/setup.sh",
         release / "release-manifest.json",
+        figure_file,
         *(release / relative_path for relative_path in source_files),
     ]
     checksum_lines = [
@@ -1027,6 +1032,16 @@ def test_installer_populates_source_caches_before_creating_clone(
     assert "Source models cache is absent; extracting" in result.stderr
     assert "Replacing deployed clone" in result.stderr
     assert "Extracting new image archive" not in result.stdout
+
+
+def test_installer_makes_cloned_packaged_data_readable(tmp_path: Path) -> None:
+    result, deployment, _, _ = _run_installer(tmp_path, gpu="no")
+    figures_dir = deployment / "data/figures"
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert stat.S_IMODE(figures_dir.stat().st_mode) & stat.S_IROTH
+    assert stat.S_IMODE(figures_dir.stat().st_mode) & stat.S_IXOTH
+    assert stat.S_IMODE((figures_dir / "figure.png").stat().st_mode) & stat.S_IROTH
 
 
 def test_installer_update_flow_loads_only_missing_or_changed_images(
