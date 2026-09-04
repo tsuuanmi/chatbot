@@ -13,3 +13,9 @@
 {"query":"Giải thích ảnh này","label":"CLARIFY"}
 {"query":"Mẫu này có phù hợp không?","label":"CLARIFY"}
 {"query":"Cho ví dụ?","label":"CLARIFY"}
+{"query":"Y-STR dùng được những gì trong giám định huyết thống?","label":"IN_DOMAIN"}
+{"query":"Trích xuất và định lượng DNA từ mẫu máu như thế nào?","label":"IN_DOMAIN"}
+{"query":"Chỉ số PI trong giám định huyết thống nghĩa là gì?","label":"IN_DOMAIN"}
+{"query":"Mẫu DNA bị suy giảm thì kết quả xét nghiệm ra sao?","label":"IN_DOMAIN"}
+{"query":"Cách học tiếng Anh hiệu quả?","label":"OUT_OF_DOMAIN"}
+{"query":"Làm sao để giảm cân?","label":"OUT_OF_DOMAIN"}

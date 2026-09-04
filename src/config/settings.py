@@ -36,8 +36,8 @@ class Settings(BaseSettings):
 
     figures_dir: str = "./data/figures"
     figure_description_max_tokens: int = Field(default=768, ge=64, le=4096)
-    domain_min_confidence: float = Field(default=0.65, ge=0.0, le=1.0)
-    domain_min_margin: float = Field(default=0.03, ge=0.0, le=1.0)
+    domain_min_confidence: float = Field(default=0.55, ge=0.0, le=1.0)
+    domain_min_margin: float = Field(default=0.02, ge=0.0, le=1.0)
     domain_high_risk_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     rag_top_k: int = Field(default=5, ge=1, le=20)
     rag_max_distance: float = Field(default=0.85, ge=0.0)

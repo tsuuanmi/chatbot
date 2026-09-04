@@ -19,9 +19,9 @@ class FakeEmbedding:
         return self.query_vectors[text]
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        if len(texts) == 37:  # 15 in-domain, 12 out-of-domain, 10 clarify
+        if len(texts) == 49:  # 24 in-domain, 15 out-of-domain, 10 clarify
             return (
-                [[1.0, 0.0, 0.0]] * 15 + [[0.0, 1.0, 0.0]] * 12 + [[0.0, 0.0, 1.0]] * 10
+                [[1.0, 0.0, 0.0]] * 24 + [[0.0, 1.0, 0.0]] * 15 + [[0.0, 0.0, 1.0]] * 10
             )
         return [[1.0, 0.0, 0.0] for _ in texts]
 
