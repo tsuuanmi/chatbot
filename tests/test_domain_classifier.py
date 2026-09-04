@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from loguru import logger
 
 from src.common.exceptions import DomainClassifierError
 from src.domain.classifier import DomainClassifier
@@ -56,6 +57,31 @@ async def test_warmup_fails_closed_when_embedding_is_unavailable() -> None:
         await service.warmup()
     assert isinstance(raised.value.__cause__, RuntimeError)
     assert not service.is_ready
+
+
+@pytest.mark.asyncio
+async def test_warmup_failure_logs_the_embedding_cause() -> None:
+    embedding = MagicMock()
+    embedding.embed_batch.side_effect = RuntimeError("connection refused")
+    service = DomainClassifier(
+        embedding,
+        minimum_confidence=0.7,
+        minimum_margin=0.03,
+        high_risk_threshold=0.99,
+    )
+    messages: list[str] = []
+    handler_id = logger.add(messages.append, level="ERROR")
+
+    try:
+        with pytest.raises(DomainClassifierError):
+            await service.warmup()
+    finally:
+        logger.remove(handler_id)
+
+    assert any(
+        "connection refused" in message and "embedding" in message
+        for message in messages
+    )
 
 
 @pytest.mark.asyncio

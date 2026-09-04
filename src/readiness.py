@@ -51,11 +51,16 @@ async def warmup_application(
                 logger.exception(
                     "Application dependency warmup failed after {} attempts", attempts
                 )
+                logger.error(
+                    "Check the postgres, chromadb, llama-server, and embedding-server "
+                    "containers and their logs before retrying"
+                )
                 break
             logger.warning(
-                "Application dependency warmup attempt {}/{} failed ({}); retrying",
+                "Application dependency warmup attempt {}/{} failed: {} ({}); retrying",
                 attempt,
                 attempts,
+                error,
                 type(error).__name__,
             )
             await asyncio.sleep(delay)

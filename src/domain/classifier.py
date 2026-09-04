@@ -112,6 +112,13 @@ class DomainClassifier:
         try:
             await self._load_vectors()
         except Exception as error:
+            logger.exception(
+                "Semantic domain classifier warmup failed: the embedding service "
+                "did not provide vectors ({}: {}); check the embedding-server "
+                "container and its logs",
+                type(error).__name__,
+                error,
+            )
             raise DomainClassifierError(
                 "Semantic domain classifier is unavailable"
             ) from error
@@ -137,8 +144,10 @@ class DomainClassifier:
             query_vector = await asyncio.to_thread(self._embedding.embed, query)
         except Exception as error:
             logger.exception(
-                "Semantic domain classifier dependency failed ({})",
+                "Semantic domain classifier dependency failed ({}: {}); check the "
+                "embedding-server container and its logs",
                 type(error).__name__,
+                error,
             )
             raise DomainClassifierError(
                 "Semantic domain classifier is unavailable"
