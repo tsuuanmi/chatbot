@@ -139,6 +139,7 @@ def test_prepare_packages_cpu_and_gpu_llama_images(tmp_path: Path) -> None:
         .splitlines()
     )
     assert (extract / "chatbot" / "scripts" / "offline" / "host_platform.sh").is_file()
+    assert (extract / "chatbot" / "scripts" / "setup" / "release.sh").is_file()
     assert not (
         extract / "chatbot" / "scripts" / "offline" / "migrate_resources.sh"
     ).exists()

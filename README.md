@@ -59,7 +59,7 @@ curl -L "https://huggingface.co/unsloth/embeddinggemma-300m-GGUF/resolve/6661a65
 ```
 
 Deployment supports CPU and NVIDIA GPU profiles. The offline installer selects the
-profile explicitly with `--gpu yes|no` (`yes` requires a supported 6 GiB NVIDIA GPU,
+profile explicitly with `--gpu yes|no` (`yes` is the default and requires a supported 6 GiB NVIDIA GPU,
 the NVIDIA driver, and NVIDIA Container Toolkit and fails if unavailable; `no` runs
 CPU-only). The online
 development flow (`make start`) still supports `ACCELERATOR=auto|cpu|gpu`, where
@@ -85,8 +85,10 @@ modes: online setup copies `.env.example`, while the offline installer generates
 
 ## Make interface
 
-`MODE` defaults to `online`. The same lifecycle commands support both deployment
-modes:
+The Make targets are for this preparation/development computer only; the offline
+target never needs `make` — its single entrypoint is `setup.sh` with the prepared
+ZIPs. `MODE` defaults to `online`. The same lifecycle commands support both
+deployment modes:
 
 ```bash
 make setup
@@ -193,14 +195,20 @@ itself:
 cd /home/superman/workspaces
 unzip /path/to/chatbot.zip
 cd chatbot
-./setup.sh --gpu no          # CPU profile
-# or: ./setup.sh --gpu yes   # require the NVIDIA GPU profile
+./setup.sh                   # GPU profile (default)
+# or: ./setup.sh --gpu no    # CPU-only
 ```
 
 `./setup.sh` is the offline release entrypoint; `make setup` remains the development
 dependency setup command. Re-running it in a configured folder requires
 `--reinstall`, which wipes and reinstalls with a fresh database and new client keys;
 see `docs/offline.md` for the lightweight update procedure.
+
+The same command installs on both computers: the offline target, and the
+preparation computer when you want to rehearse the exact offline install from a
+freshly built `chatbot.zip`. For updates, an image tar already present in
+`chatbot/images/` with a matching checksum is used as-is and never re-extracted;
+copy the changed tars there and skip `images.zip` entirely.
 
 The installer detects the primary LAN IPv4 address and subnet, removes only containers
 and volumes bearing this release folder's path-derived Compose project label, preserves

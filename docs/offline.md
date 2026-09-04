@@ -21,7 +21,8 @@ chatbot/
 ├── src/                         application source
 ├── docs/                        operator and API documentation
 ├── config/                      static templates and generated secrets
-├── scripts/setup.sh           canonical installer source
+├── scripts/setup.sh           installer entrypoint
+├── scripts/setup/               installer step modules (sourced by setup.sh)
 ├── scripts/offline/             start, stop, client, backup, restore tools
 ├── data/                        packaged knowledge and configured figures
 ├── tests/                       source-level tests
@@ -53,7 +54,11 @@ and backups.
 For an update release, `make prepare` also writes the individual archives to
 `/home/superman/workspaces/images/`. Transfer only `chatbot.zip` plus the archives
 whose images changed, copying them into the target's existing `chatbot/images/`; see
-section 6 for the update procedure.
+section 6 for the update procedure. An archive already present in `chatbot/images/`
+whose checksum matches the release is always kept as-is; `setup.sh` falls back to
+`images.zip` only for archives that are missing or changed. This is what makes an
+update a small transfer: put the changed tars in `chatbot/images/` and skip
+`images.zip` entirely.
 
 Extracting `models.zip` places these four files in `chatbot/models/`:
 
@@ -216,6 +221,11 @@ changed:
 /home/superman/workspaces/chatbot/models
 ```
 
+The same single command runs on both computers: the offline target installs from
+the ZIPs, and the preparation computer can rehearse that exact offline install at
+any time by unzipping a freshly built `chatbot.zip` into a temporary folder and
+running `./setup.sh` there with the ZIPs beside it.
+
 If the ZIPs are stored somewhere else, point the installer at that directory with
 `./setup.sh --zip-dir /media/$USER/<USB>`.
 
@@ -234,15 +244,15 @@ Install from a local target terminal so the sudo prompt is visible:
 ```bash
 cd /home/superman/workspaces/chatbot
 chmod +x setup.sh
-./setup.sh --gpu no             # CPU profile, no NVIDIA requirement
-# or: ./setup.sh --gpu yes      # require a verified NVIDIA GPU profile
-# or: ./setup.sh --gpu yes --mode online  # build/pull images instead of loading them
+./setup.sh                        # GPU profile (default): verified NVIDIA GPU required
+# or: ./setup.sh --gpu no         # CPU profile, no NVIDIA requirement
+# or: ./setup.sh --mode online    # build/pull images instead of loading them
 ```
 
 `./setup.sh` is the offline release entrypoint; `make setup` remains the development
-dependency setup command. `--gpu yes` requires and validates a 6 GiB NVIDIA GPU, the
-NVIDIA host, and the loaded CUDA image; it fails instead of falling back to CPU. `--gpu no` installs CPU-only.
-`--mode` defaults to
+dependency setup command. The GPU profile is the default: it requires and validates a
+6 GiB NVIDIA GPU, the NVIDIA host, and the loaded CUDA image; it fails instead of
+falling back to CPU. `--gpu no` installs CPU-only. `--mode` defaults to
 `offline`; `--mode online` builds and pulls images via `accelerator.sh online` instead
 of loading the per-image archives, and skips the offline firewall, client
 credential, and boot-marker hardening. The chosen `cpu` or `gpu` profile is written to
@@ -257,12 +267,12 @@ screen and retained in `install.log`.
 Optional installation environment variables:
 
 ```bash
-SERVER_ADDRESS=192.168.1.50 ./setup.sh --gpu no  # choose an assigned local address
-LAN_CIDR=192.168.1.0/24 ./setup.sh --gpu no      # override the trusted interface subnet
-CLIENT_COUNT=3 ./setup.sh --gpu no               # generate client-01 through client-03
-HTTP_PORT=8080 ./setup.sh --gpu no               # use a non-default host port
-SSH_PORT=2222 ./setup.sh --gpu no                # preserve a non-default LAN SSH port
-BIND_ADDRESS=192.168.1.50 ./setup.sh --gpu no    # restrict Nginx to one interface
+SERVER_ADDRESS=192.168.1.50 ./setup.sh  # choose an assigned local address
+LAN_CIDR=192.168.1.0/24 ./setup.sh               # override the trusted interface subnet
+CLIENT_COUNT=3 ./setup.sh                        # generate client-01 through client-03
+HTTP_PORT=8080 ./setup.sh                        # use a non-default host port
+SSH_PORT=2222 ./setup.sh                         # preserve a non-default LAN SSH port
+BIND_ADDRESS=192.168.1.50 ./setup.sh             # restrict Nginx to one interface
 ```
 
 `SERVER_ADDRESS` and a custom `BIND_ADDRESS` must be IPv4 addresses assigned to the
@@ -275,9 +285,10 @@ The installer performs these actions:
    `models.zip` when they are provided;
 2. verifies the extracted folder matches `chatbot.zip` file-for-file, refreshing
    `SHA256SUMS` and `release-manifest.json` from the ZIP;
-3. fills `images/` with the per-image archives listed in the manifest, extracting
-   only new or changed archives from `images.zip`, and removes archives no longer
-   listed in the manifest;
+3. fills `images/` with the per-image archives listed in the manifest: an archive
+   already present in `chatbot/images/` with a matching checksum is used as-is and
+   never re-extracted, a missing or changed one is extracted from `images.zip`, and
+   archives no longer listed in the manifest are removed;
 4. fills `models/` with the four GGUF files, extracting them from `models.zip` only
    when the existing files do not already match its checksums;
 5. detects and validates the server address, interface, and trusted LAN CIDR;
@@ -320,7 +331,7 @@ restored. If an abrupt power loss leaves `.env` without the completion marker,
 reset and retry with:
 
 ```bash
-RESET_INCOMPLETE_INSTALL=YES ./setup.sh --gpu no
+RESET_INCOMPLETE_INSTALL=YES ./setup.sh
 ```
 
 ### 6.1. Update an installed release
@@ -340,7 +351,7 @@ does not retransfer unchanged images:
 unzip -o /media/$USER/<USB>/chatbot.zip -d /home/superman/workspaces
 cp /media/$USER/<USB>/images/app.tar /home/superman/workspaces/chatbot/images/
 cd /home/superman/workspaces/chatbot
-./setup.sh --gpu no --reinstall
+./setup.sh --reinstall
 ```
 
 `--reinstall` wipes and reinstalls the stack in the same folder: a fresh database,
@@ -643,7 +654,7 @@ With target WAN access disconnected:
 - unzip `chatbot.zip` and place `images.zip` and `models.zip` next to it under
   `/home/superman/workspaces`;
 - reserve the target's LAN IPv4 address and confirm the installer selects its CIDR;
-- run `./setup.sh --gpu yes` (or `--gpu no`) successfully and confirm five credential files are generated;
+- run `./setup.sh` (GPU default; `--gpu no` for CPU-only) successfully and confirm five credential files are generated;
 - confirm only containers and volumes with the release folder's project label were removed, unrelated resources remain, and every new service is healthy; remove any earlier-naming leftovers manually;
 - confirm authenticated `/api/v1/ready` reports `ready`;
 - test prepared, generated, figure, streaming, and delete paths;

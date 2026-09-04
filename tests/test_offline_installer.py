@@ -60,6 +60,7 @@ def _prepare_release(
         release / "config",
         release / "images",
         release / "models",
+        release / "scripts/setup",
         release / "scripts/offline",
         release / "compose",
     ):
@@ -69,6 +70,11 @@ def _prepare_release(
         "compose/docker-compose.offline.yml",
         "compose/docker-compose.offline.gpu.yml",
         "scripts/accelerator.sh",
+        "scripts/setup/common.sh",
+        "scripts/setup/release.sh",
+        "scripts/setup/rollback.sh",
+        "scripts/setup/host.sh",
+        "scripts/setup/deploy.sh",
         "config/offline.env.template",
         "scripts/offline/common.sh",
         "scripts/offline/configure_host.sh",
@@ -527,6 +533,7 @@ def _run_installer(
     gpu_processes: str = "",
     gpu_query_fails: bool = False,
     gpu: str = "yes",
+    explicit_gpu: bool = True,
     nvidia_runtime: bool = True,
     nvidia_host_fails: bool = False,
     cuda_unavailable: bool = False,
@@ -636,7 +643,9 @@ def _run_installer(
     )
     environment.pop("OFFLINE_ENV", None)
     entrypoint = "scripts/setup.sh" if development_layout else "./setup.sh"
-    arguments = ["bash", entrypoint, "--gpu", gpu]
+    arguments = ["bash", entrypoint]
+    if explicit_gpu:
+        arguments += ["--gpu", gpu]
     if reinstall:
         arguments.append("--reinstall")
     result = subprocess.run(
@@ -981,6 +990,16 @@ def test_installer_rejects_tampered_image_archive_before_load(
     assert "docker rm -f" not in commands
 
 
+def test_installer_defaults_to_gpu_profile_without_flag(tmp_path: Path) -> None:
+    result, release, _, _ = _run_installer(tmp_path, explicit_gpu=False)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Selected accelerator profile: gpu" in result.stdout
+    install_log = (release / "install.log").read_text(encoding="utf-8")
+    assert "STEP 19/19" in install_log
+    assert "LLAMA_GPU_LAYERS=16" in (release / ".env").read_text(encoding="utf-8")
+
+
 def test_installer_update_flow_loads_only_missing_or_changed_images(
     tmp_path: Path,
 ) -> None:
@@ -1002,6 +1021,10 @@ def test_installer_update_flow_loads_only_missing_or_changed_images(
     assert (
         "Image already present and unchanged, skipping load: "
         "chatbot/llama.cpp-server-cpu:test" in result.stdout
+    )
+    assert (
+        "images/app.tar already matches this release; using the existing file"
+        in result.stdout
     )
     assert "images.zip not provided" in result.stdout
     assert "Models already match models.zip; skipping extraction" in result.stdout
