@@ -80,6 +80,7 @@ def _prepare_release(
         "scripts/setup/rollback.sh",
         "scripts/setup/host.sh",
         "scripts/setup/deploy.sh",
+        "config/nginx.conf",
         "config/offline.env.template",
         "scripts/offline/common.sh",
         "scripts/offline/configure_host.sh",
@@ -1042,6 +1043,9 @@ def test_installer_makes_cloned_packaged_data_readable(tmp_path: Path) -> None:
     assert stat.S_IMODE(figures_dir.stat().st_mode) & stat.S_IROTH
     assert stat.S_IMODE(figures_dir.stat().st_mode) & stat.S_IXOTH
     assert stat.S_IMODE((figures_dir / "figure.png").stat().st_mode) & stat.S_IROTH
+    assert (
+        stat.S_IMODE((deployment / "config/nginx.conf").stat().st_mode) & stat.S_IROTH
+    )
 
 
 def test_installer_update_flow_loads_only_missing_or_changed_images(

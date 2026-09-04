@@ -569,11 +569,12 @@ reports loading, reuse, generation, and immediate storage. A failed embedding/st
 request is retried three times for that figure without regenerating completed figures.
 Initial multimodal descriptions can take several minutes each on a 6 GB GPU.
 
-### Indexer reports permission denied for `/app/data/figures`
+### Indexer or proxy reports a bind-mount permission error
 
-Use the current release and rerun `chatbot/setup.sh`. It recreates
-`chatbot_offline/` and makes only packaged `data/` content readable by the unprivileged
-app container; generated secrets and runtime data remain private.
+For `PermissionError: /app/data/figures` or `nginx.conf ... (13: Permission denied)`,
+use the current release and rerun `chatbot/setup.sh`. It recreates `chatbot_offline/`
+and makes only packaged `data/` and `config/nginx.conf` readable by containers;
+generated secrets and runtime data remain private.
 
 ### Chatbot container is unhealthy
 
