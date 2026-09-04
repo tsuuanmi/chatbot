@@ -188,8 +188,8 @@ is not supported. Docker must route IPv4 `FORWARD` traffic first through its
 `DOCKER-USER` iptables chain for LAN port isolation. RHEL keeps SELinux Enforcing and uses firewalld.
 
 On the dedicated target computer, unzip only `chatbot.zip` and leave the three ZIPs
-in the same parent directory; the installer extracts image archives and model files
-itself:
+in the same parent directory. `chatbot/` remains the clean release source; its setup
+creates and installs into sibling `chatbot_offline/`:
 
 ```bash
 cd /home/superman/workspaces
@@ -199,16 +199,16 @@ cd chatbot
 # or: ./setup.sh --gpu no    # CPU-only
 ```
 
-`./setup.sh` is the offline release entrypoint; `make setup` remains the development
-dependency setup command. Re-running it in a configured folder requires
-`--reinstall`, which wipes and reinstalls with a fresh database and new client keys;
-see `docs/offline.md` for the lightweight update procedure.
+Every source `./setup.sh` run removes and recreates `chatbot_offline/`, producing a
+fresh database, secrets, and client keys. The first run populates absent source
+`chatbot/images/` and `chatbot/models/` caches from their ZIPs before copying them into
+the deployed clone; see `docs/offline.md` for the update procedure.
 
 The same command installs on both computers: the offline target, and the
 preparation computer when you want to rehearse the exact offline install from a
-freshly built `chatbot.zip`. For updates, an image tar already present in
-`chatbot/images/` with a matching checksum is used as-is and never re-extracted;
-copy the changed tars there and skip `images.zip` entirely.
+freshly built `chatbot.zip`. For updates, copy changed image tars into the persistent
+source `chatbot/images/` cache, then run `chatbot/setup.sh`; it uses that cache and
+does not unpack `images.zip` while the cache exists.
 
 The installer detects the primary LAN IPv4 address and subnet, removes only containers
 and volumes bearing this release folder's path-derived Compose project label, preserves

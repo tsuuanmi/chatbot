@@ -37,7 +37,7 @@ report_error() {
 }
 
 usage() {
-  echo "usage: $0 [--gpu yes|no] [--mode offline|online] [--reinstall] [--zip-dir DIR]" >&2
+  echo "usage: $0 [--gpu yes|no] [--mode offline|online] [--zip-dir DIR]" >&2
   echo "--gpu defaults to yes: the verified NVIDIA GPU profile; --gpu no installs CPU-only." >&2
   echo "optional environment: SERVER_ADDRESS, LAN_CIDR, BIND_ADDRESS, HTTP_PORT, SSH_PORT, CLIENT_COUNT, ZIP_DIR" >&2
 }

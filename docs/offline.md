@@ -11,10 +11,13 @@ The final deliverable is created on an Internet-connected preparation computer:
 /home/superman/workspaces/images/       the same per-image archives as individual files, for update delivery
 ```
 
-On the target, only `chatbot.zip` must be unzipped. `setup.sh` finds the three ZIPs in
-the same parent directory as the release folder (override with `--zip-dir DIR` or
-`ZIP_DIR`), verifies their integrity, and itself extracts the image archives and model
-files it is missing. A normal repository-like directory results:
+On the target, unzip only `chatbot.zip` into `chatbot/`. That folder remains the
+release source and resource cache. `chatbot/setup.sh` creates a fresh sibling
+`chatbot_offline/` deployment on every run, leaving generated secrets, runtime data,
+and containers out of the source folder. It finds the ZIPs in the same parent directory
+(override with `--zip-dir DIR` or `ZIP_DIR`). If the source `images/` or `models/`
+cache does not exist, it fills that cache from its corresponding ZIP before creating the
+deployment clone. A normal source directory results:
 
 ```text
 chatbot/
@@ -36,6 +39,9 @@ chatbot/
 ├── release-manifest.json
 ├── SHA256SUMS
 └── setup.sh                   generated one-command target entry point
+
+chatbot_offline/                generated sibling deployment: runtime, secrets, clients,
+                                images, models, and Compose containers
 ```
 
 `chatbot.zip` contains source read from the committed `git archive HEAD`, plus
@@ -53,12 +59,11 @@ and backups.
 
 For an update release, `make prepare` also writes the individual archives to
 `/home/superman/workspaces/images/`. Transfer only `chatbot.zip` plus the archives
-whose images changed, copying them into the target's existing `chatbot/images/`; see
-section 6 for the update procedure. An archive already present in `chatbot/images/`
-whose checksum matches the release is always kept as-is; `setup.sh` falls back to
-`images.zip` only for archives that are missing or changed. This is what makes an
-update a small transfer: put the changed tars in `chatbot/images/` and skip
-`images.zip` entirely.
+whose images changed, copying them into the target's persistent `chatbot/images/`
+cache; see section 6 for the update procedure. `setup.sh` uses that cache as-is and
+unpacks `images.zip` only when `chatbot/images/` does not exist. The first installation
+therefore needs `images.zip`; later updates keep the complete cache and replace only the
+changed tars.
 
 Extracting `models.zip` places these four files in `chatbot/models/`:
 
@@ -95,8 +100,8 @@ and PostgreSQL are not directly reachable from the LAN.
 
 The target does not run `docker build`, `docker pull`, `uv sync`, or any package
 download during setup or normal operation. It loads runtime images from the per-image
-archives in `chatbot/images/`, only for images missing from Docker or changed since
-the last release, and starts with `--no-build --pull never`.
+archives copied from the source cache into `chatbot_offline/images/`, only for images
+missing from Docker or changed since the last release, and starts with `--no-build --pull never`.
 
 The host `.venv` is intentionally excluded. The application image already contains
 its own `/app/.venv` with all locked runtime dependencies. Installation and
@@ -211,14 +216,13 @@ The result should be:
 /home/superman/workspaces/chatbot.zip     (and images.zip / models.zip when provided)
 ```
 
-`setup.sh` verifies the ZIPs, confirms the extracted source matches `chatbot.zip`,
-then fills `chatbot/images/` with the per-image archives and `chatbot/models/` with
-the four GGUF files and their `SHA256SUMS`, extracting only what is missing or
-changed:
+The first `setup.sh` run verifies the ZIPs, confirms `chatbot/` matches
+`chatbot.zip`, fills absent source caches, and then creates the sibling deployment:
 
 ```text
 /home/superman/workspaces/chatbot/images
 /home/superman/workspaces/chatbot/models
+/home/superman/workspaces/chatbot_offline
 ```
 
 The same single command runs on both computers: the offline target installs from
@@ -249,8 +253,10 @@ chmod +x setup.sh
 # or: ./setup.sh --mode online    # build/pull images instead of loading them
 ```
 
-`./setup.sh` is the offline release entrypoint; `make setup` remains the development
-dependency setup command. The GPU profile is the default: it requires and validates a
+`./setup.sh` is the source-folder entrypoint; it deletes and recreates sibling
+`chatbot_offline/` before installing there. Run lifecycle commands from
+`chatbot_offline/`. `make setup` remains the development dependency setup command. The
+GPU profile is the default: it requires and validates a
 6 GiB NVIDIA GPU, the NVIDIA host, and the loaded CUDA image; it fails instead of
 falling back to CPU. `--gpu no` installs CPU-only. `--mode` defaults to
 `offline`; `--mode online` builds and pulls images via `accelerator.sh online` instead
@@ -280,17 +286,17 @@ target. `LAN_CIDR` must contain `SERVER_ADDRESS`. `CLIENT_COUNT` accepts 1 throu
 
 The installer performs these actions:
 
-1. validates required files, commands, architecture, installation state, and the
-   integrity of `chatbot.zip` (required on every run) plus `images.zip` and
-   `models.zip` when they are provided;
-2. verifies the extracted folder matches `chatbot.zip` file-for-file, refreshing
+1. fills an absent source `chatbot/images/` or `chatbot/models/` cache from its ZIP,
+   then removes any older sibling `chatbot_offline/` deployment and copies the source
+   folder and both caches into a fresh deployment clone;
+2. validates required files, commands, architecture, and the integrity of
+   `chatbot.zip` (required on every run) plus `images.zip` and `models.zip` when they
+   are provided;
+3. verifies the deployment clone matches `chatbot.zip` file-for-file, refreshing
    `SHA256SUMS` and `release-manifest.json` from the ZIP;
-3. fills `images/` with the per-image archives listed in the manifest: an archive
-   already present in `chatbot/images/` with a matching checksum is used as-is and
-   never re-extracted, a missing or changed one is extracted from `images.zip`, and
-   archives no longer listed in the manifest are removed;
-4. fills `models/` with the four GGUF files, extracting them from `models.zip` only
-   when the existing files do not already match its checksums;
+4. verifies the cloned `images/` archives against the manifest, using the persistent
+   source cache as-is; `images.zip` is used only when that source cache was absent;
+5. verifies the four cloned GGUF files and their `models/SHA256SUMS` checksums;
 5. detects and validates the server address, interface, and trusted LAN CIDR;
 6. checks four model filenames and their `models/SHA256SUMS` checksums, release
    checksums, free space, Docker, and the selected profile;
@@ -315,24 +321,16 @@ The installer performs these actions:
 17. verifies every long-running chatbot container uses `restart: unless-stopped` and
     prints the server address, the client credential file paths, and a test command.
 
-After successful setup, `setup.sh` writes `config/.installed` and refuses to run
-again; use the lifecycle commands in section 9 for normal operation, or pass
-`--reinstall` to wipe and reinstall (fresh database and new client keys), as in
-section 6.1. A normal installation failure rolls
-back generated chatbot containers, project volumes, secrets, and configuration. Selected
-chatbot containers and volumes are intentionally not restored, ensuring that a retry in
-the same folder starts with a fresh PostgreSQL database. Docker images and model files
-remain available, and fail-closed host firewall rules may remain active. The installer
-records its intended firewall state so `RESET_INCOMPLETE_INSTALL=YES` reconciles those
-rules on retry. The installer verifies
-Docker's `DOCKER-USER` chain before selected chatbot data is removed and rechecks it after
-backend containers start; if that final check fails, selected chatbot data is still not
-restored. If an abrupt power loss leaves `.env` without the completion marker,
-reset and retry with:
-
-```bash
-RESET_INCOMPLETE_INSTALL=YES ./setup.sh
-```
+After successful setup, `chatbot_offline/setup.sh` writes `config/.installed`. Use
+lifecycle commands from `chatbot_offline/` for normal operation. To reinstall or update,
+run `chatbot/setup.sh` again: it replaces `chatbot_offline/` with a new deployment,
+including a fresh database, client keys, and `.env` secrets. A normal installation
+failure rolls back generated chatbot containers, project volumes, secrets, and
+configuration. Docker images and the source `chatbot/images/` and `chatbot/models/`
+caches remain available, and fail-closed host firewall rules may remain active. The
+installer verifies Docker's `DOCKER-USER` chain before selected chatbot data is removed
+and rechecks it after backend containers start; if that final check fails, selected
+chatbot data is still not restored.
 
 ### 6.1. Update an installed release
 
@@ -344,19 +342,19 @@ does not retransfer unchanged images:
    only the archives whose images changed (for example `app.tar` and
    `llama-gpu.tar`); also transfer a new `models.zip` only when the model files
    changed;
-3. on the target, unzip the new `chatbot.zip` over the existing folder, copy the
-   changed archives into `chatbot/images/`, and reinstall:
+3. on the target, unzip the new `chatbot.zip` over the source folder, copy the
+   changed archives into its persistent `chatbot/images/` cache, and run setup:
 
 ```bash
 unzip -o /media/$USER/<USB>/chatbot.zip -d /home/superman/workspaces
 cp /media/$USER/<USB>/images/app.tar /home/superman/workspaces/chatbot/images/
 cd /home/superman/workspaces/chatbot
-./setup.sh --reinstall
+./setup.sh
 ```
 
-`--reinstall` wipes and reinstalls the stack in the same folder: a fresh database,
-new client keys, and new `.env` secrets. Unchanged image archives and model files
-are verified and skipped, so only changed content is extracted and loaded.
+`setup.sh` deletes and recreates `chatbot_offline/`: a fresh database, new client keys,
+and new `.env` secrets. The complete source image cache is copied into the new clone,
+so unchanged image archives are not transferred or extracted from `images.zip`.
 
 ## 7. Generated secrets and client files
 
@@ -438,10 +436,10 @@ CORS affects browser frontends, not Postman or curl.
 
 ## 9. Normal target operation
 
-Run from the extracted directory:
+Run from the deployed clone:
 
 ```bash
-cd /home/superman/workspaces/chatbot
+cd /home/superman/workspaces/chatbot_offline
 
 make status MODE=offline
 make start MODE=offline
@@ -565,7 +563,7 @@ does not download models.
 
 ### Installer stops during a long first index
 
-Watch the numbered console output or `tail -f install.log`. Each configured figure
+Watch the numbered console output or `tail -f chatbot_offline/install.log`. Each configured figure
 reports loading, reuse, generation, and immediate storage. A failed embedding/storage
 request is retried three times for that figure without regenerating completed figures.
 Initial multimodal descriptions can take several minutes each on a 6 GB GPU.
@@ -617,15 +615,17 @@ make status MODE=offline
 ```
 
 The API becomes ready only after functional model, embedding, database, index, and
-classifier warmup checks succeed.
+classifier warmup checks succeed. A classifier warmup failure now logs the embedding
+error and explicitly directs the operator to `embedding-server` logs.
 
 ### Missing image or image archive
 
 Offline startup intentionally fails rather than pulling. The installer names the
 missing image and archive (for example `images/app.tar`). For an update, copy that
-archive from the preparation computer's `images/` directory into
-`chatbot/images/` and re-run; for a first installation, transfer `images.zip` next to
-`chatbot.zip` and re-run.
+archive from the preparation computer's `images/` directory into the persistent source
+cache `chatbot/images/` and re-run `chatbot/setup.sh`. For a first installation,
+transfer `images.zip` next to `chatbot.zip`; setup creates the source cache from it
+before creating `chatbot_offline/`.
 
 ### Installer says the chatbot folder does not match chatbot.zip
 

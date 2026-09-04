@@ -29,13 +29,10 @@ IMAGES_ZIP=""
 MODELS_ZIP=""
 HAVE_IMAGES_ZIP=false
 HAVE_MODELS_ZIP=false
-REINSTALL=false
 INSTALL_MARKER="$INSTALL_DIR/config/.installed"
 INSTALL_LOG="$INSTALL_DIR/install.log"
 installation_started=false
 installation_complete=false
-reset_incomplete_installation=false
-stopped_incomplete_gpu_containers=()
 image_archive_entries=()
 archive_names=()
 step_number=0
@@ -43,16 +40,9 @@ current_step="initialization"
 total_steps=19
 readonly residual_gpu_limit_mb=1024
 readonly minimum_gpu_memory_mib=6144
+original_arguments=("$@")
 
-command -v tee >/dev/null 2>&1 || {
-  echo "Missing prerequisite: tee" >&2
-  exit 1
-}
-touch "$INSTALL_LOG"
-chmod 600 "$INSTALL_LOG"
-exec > >(tee -a "$INSTALL_LOG") 2>&1
-
-for setup_module in common release rollback host deploy; do
+for setup_module in clone common release rollback host deploy; do
   [[ -f "$SETUP_MODULES_DIR/$setup_module.sh" ]] || {
     echo "setup.sh step module is missing: $SETUP_MODULES_DIR/$setup_module.sh" >&2
     echo "Unzip the current chatbot.zip over $INSTALL_DIR before running setup.sh." >&2
@@ -60,18 +50,10 @@ for setup_module in common release rollback host deploy; do
   }
 done
 
+# shellcheck source=setup/clone.sh
+source "$SETUP_MODULES_DIR/clone.sh"
 # shellcheck source=setup/common.sh
 source "$SETUP_MODULES_DIR/common.sh"
-# shellcheck source=setup/release.sh
-source "$SETUP_MODULES_DIR/release.sh"
-# shellcheck source=setup/rollback.sh
-source "$SETUP_MODULES_DIR/rollback.sh"
-# shellcheck source=setup/host.sh
-source "$SETUP_MODULES_DIR/host.sh"
-# shellcheck source=setup/deploy.sh
-source "$SETUP_MODULES_DIR/deploy.sh"
-trap report_error ERR
-trap rollback_incomplete_installation EXIT
 
 while (( $# != 0 )); do
   case "$1" in
@@ -85,9 +67,6 @@ while (( $# != 0 )); do
       MODE="$2"; shift 2 ;;
     --mode=*)
       MODE="${1#--mode=}"; shift ;;
-    --reinstall)
-      REINSTALL=true
-      shift ;;
     --zip-dir)
       [[ -n "${2:-}" ]] || { echo "--zip-dir requires an argument" >&2; usage; exit 2; }
       ZIP_DIR="$2"; shift 2 ;;
@@ -124,7 +103,32 @@ if [[ "$MODE" == "online" ]]; then
   total_steps=4
 fi
 
+prepare_deployed_clone "${original_arguments[@]}"
+
+command -v tee >/dev/null 2>&1 || {
+  echo "Missing prerequisite: tee" >&2
+  exit 1
+}
+touch "$INSTALL_LOG"
+chmod 600 "$INSTALL_LOG"
+exec > >(tee -a "$INSTALL_LOG") 2>&1
+
+# shellcheck source=setup/release.sh
+source "$SETUP_MODULES_DIR/release.sh"
+# shellcheck source=setup/rollback.sh
+source "$SETUP_MODULES_DIR/rollback.sh"
+# shellcheck source=setup/host.sh
+source "$SETUP_MODULES_DIR/host.sh"
+# shellcheck source=setup/deploy.sh
+source "$SETUP_MODULES_DIR/deploy.sh"
+trap report_error ERR
+trap rollback_incomplete_installation EXIT
+
 step "Validate installer arguments and prerequisites"
+if [[ -n "${CHATBOT_SOURCE_DIR:-}" ]]; then
+  log "Release source folder: $CHATBOT_SOURCE_DIR"
+  log "Deployment folder: $INSTALL_DIR"
+fi
 if [[ "$MODE" == "online" ]]; then
   required_commands=(docker sha256sum)
 else
@@ -163,23 +167,6 @@ if [[ "$MODE" == "offline" ]]; then
       echo "CLIENT_COUNT must be an integer from 1 through 99." >&2
       exit 1
     }
-  if [[ -e "$INSTALL_MARKER" && "$REINSTALL" != true ]]; then
-    echo "This folder is already configured." >&2
-    echo "Pass --reinstall to wipe and reinstall it (fresh database and new client" >&2
-    echo "keys), or start the installed stack with ./scripts/offline/offline.sh start." >&2
-    exit 1
-  fi
-  if [[ "$REINSTALL" == true ]]; then
-    rm -f "$INSTALL_MARKER"
-  fi
-  if [[ -e "$INSTALL_DIR/.env" ]]; then
-    [[ "${RESET_INCOMPLETE_INSTALL:-}" == "YES" || "$REINSTALL" == true ]] || {
-      echo "An incomplete installation was found." >&2
-      echo "Re-run with RESET_INCOMPLETE_INSTALL=YES or --reinstall to reset and retry." >&2
-      exit 1
-    }
-    reset_incomplete_installation=true
-  fi
   [[ -f "$INSTALL_DIR/compose/docker-compose.offline.yml" \
     && -f "$INSTALL_DIR/compose/docker-compose.offline.gpu.yml" \
     && -f "$INSTALL_DIR/scripts/accelerator.sh" \
@@ -261,10 +248,6 @@ preflight_host_firewall
 
 step "Validate the selected bind address and HTTP port"
 validate_bind_address
-if [[ "$reset_incomplete_installation" == true ]]; then
-  stopped_incomplete_gpu_containers=()
-  cleanup_incomplete_installation
-fi
 
 step "Remove existing chatbot containers and volumes"
 remove_existing_chatbot_resources

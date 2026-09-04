@@ -1,20 +1,5 @@
 # Rollback of generated state when an installation does not complete.
 
-stop_incomplete_gpu_containers() {
-  local container_id compose_project
-  local existing_container_output
-  existing_container_output="$(docker ps -q)"
-  [[ -n "$existing_container_output" ]] || return 0
-  while IFS= read -r container_id; do
-    compose_project="$(docker inspect --format '{{if .Config.Labels}}{{index .Config.Labels "com.docker.compose.project"}}{{end}}' "$container_id")"
-    if is_chatbot_project_identity "$compose_project"; then
-      log "Stopping interrupted chatbot GPU container before residual GPU validation: $container_id"
-      docker stop "$container_id" >/dev/null
-      stopped_incomplete_gpu_containers+=("$container_id")
-    fi
-  done <<< "$existing_container_output"
-}
-
 cleanup_incomplete_installation() {
   local cleanup_status=0
   log "Removing generated state from the incomplete installation"
@@ -40,11 +25,6 @@ cleanup_incomplete_installation() {
 
 rollback_incomplete_installation() {
   local status=$?
-  if (( status != 0 )) && (( ${#stopped_incomplete_gpu_containers[@]} > 0 )); then
-    log "Restoring interrupted chatbot GPU containers after preflight failure"
-    docker start "${stopped_incomplete_gpu_containers[@]}" >/dev/null \
-      || log "Could not restore all interrupted chatbot GPU containers"
-  fi
   if (( status != 0 )) && [[ "$installation_started" == true ]] \
     && [[ "$installation_complete" != true ]]; then
     log "Installation failed; rolling back generated chatbot state for a safe retry"

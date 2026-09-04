@@ -19,9 +19,6 @@ select_lan_network() {
 preflight_host_firewall() {
   "$INSTALL_DIR/scripts/offline/configure_host.sh" --preflight \
     "$LAN_CIDR" "$SERVER_ADDRESS" "$HTTP_PORT" "$SSH_PORT" "$NETWORK_INTERFACE"
-  if [[ "$reset_incomplete_installation" == true && "$ACCELERATOR" == "gpu" ]]; then
-    stop_incomplete_gpu_containers
-  fi
   if [[ "$ACCELERATOR" == "gpu" ]]; then
     validate_residual_gpu_memory
   fi

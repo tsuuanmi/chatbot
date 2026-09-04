@@ -70,6 +70,7 @@ def _prepare_release(
         "compose/docker-compose.offline.yml",
         "compose/docker-compose.offline.gpu.yml",
         "scripts/accelerator.sh",
+        "scripts/setup/clone.sh",
         "scripts/setup/common.sh",
         "scripts/setup/release.sh",
         "scripts/setup/rollback.sh",
@@ -128,7 +129,7 @@ def _prepare_release(
         "\n".join(checksum_lines) + "\n", encoding="utf-8"
     )
 
-    if prepopulate_archives:
+    if prepopulate_archives or stale_archives:
         for archive, content in archive_contents.items():
             (release / "images" / archive).write_bytes(content)
     for stale_archive in stale_archives:
@@ -164,6 +165,10 @@ def _prepare_release(
             zip_file.writestr("chatbot/models/SHA256SUMS", models_sums)
             for name, content in model_contents.items():
                 zip_file.writestr(f"chatbot/models/{name}", content)
+    if not (prepopulate_archives or stale_archives):
+        shutil.rmtree(release / "images")
+    if not prepopulate_models:
+        shutil.rmtree(release / "models")
     return release
 
 
@@ -540,7 +545,6 @@ def _run_installer(
     tampered_archive: str = "",
     missing_images: str = " ".join(image for image, _ in IMAGE_ARCHIVE_SPECS),
     changed_images: str = "",
-    reset_incomplete: bool = False,
     platform: str = "ubuntu",
     docker_user_chain: bool = True,
     docker_user_forward: bool = True,
@@ -550,7 +554,6 @@ def _run_installer(
     http_port: int = 18080,
     firewalld_add_fails: bool = False,
     previous_firewall_state: str = "",
-    labeled_container_running: bool = True,
     broad_firewall_rule: str = "",
     images_zip: bool = True,
     models_zip: bool = True,
@@ -559,7 +562,6 @@ def _run_installer(
     prepopulate_models: bool = False,
     stale_archives: tuple[str, ...] = (),
     installed: bool = False,
-    reinstall: bool = False,
     folder_drift: bool = False,
     development_layout: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
@@ -573,9 +575,12 @@ def _run_installer(
         tampered_archive=tampered_archive,
         stale_archives=stale_archives,
     )
+    deployment = tmp_path / "chatbot_offline"
     if installed:
-        (release / "config/.installed").write_text("", encoding="utf-8")
-        shutil.copy2(release / "config/offline.env.template", release / ".env")
+        (deployment / "config").mkdir(parents=True)
+        (deployment / "config/.installed").write_text("", encoding="utf-8")
+        (deployment / "old-runtime.txt").write_text("obsolete", encoding="utf-8")
+        shutil.copy2(release / "config/offline.env.template", deployment / ".env")
     if folder_drift:
         drifted = release / "config/offline.env.template"
         drifted.write_text(
@@ -593,8 +598,6 @@ def _run_installer(
         os_release.write_text("ID=rhel\nVERSION_ID=8.10\n", encoding="utf-8")
     else:
         os_release.write_text("ID=unknown\nVERSION_ID=0\n", encoding="utf-8")
-    if reset_incomplete:
-        shutil.copy2(release / "config/offline.env.template", release / ".env")
     fake_bin, command_log, mock_root = _prepare_fake_commands(tmp_path)
     if previous_firewall_state:
         state_path = mock_root / "etc/chatbot/firewall.conf"
@@ -609,7 +612,7 @@ def _run_installer(
             "MOCK_CHATBOT_UNHEALTHY": "1" if chatbot_unhealthy else "0",
             "MOCK_CHATBOT_UP_FAIL": "1" if chatbot_up_fails else "0",
             "MOCK_CHATBOT_PROJECT_NAME": "chatbot-"
-            + hashlib.sha256(str(release).encode()).hexdigest()[:12],
+            + hashlib.sha256(str(deployment).encode()).hexdigest()[:12],
             "MOCK_COMMAND_LOG": str(command_log),
             "MOCK_CURL_FAIL": "1" if curl_fails else "0",
             "MOCK_DOCKER_PS_FAIL": "1" if docker_ps_fails else "0",
@@ -618,7 +621,7 @@ def _run_installer(
             "MOCK_DOCKER_USER_FORWARD_FIRST": "1" if docker_user_forward_first else "0",
             "MOCK_CONNTRACK_FAIL": "1" if conntrack_fails else "0",
             "MOCK_FIREWALLD_ADD_FAIL": "1" if firewalld_add_fails else "0",
-            "MOCK_LABELED_CONTAINER_RUNNING": "1" if labeled_container_running else "0",
+            "MOCK_LABELED_CONTAINER_RUNNING": "1",
             "MOCK_GPU_MEMORY_USED": str(gpu_memory_used),
             "MOCK_GPU_MEMORY_TOTAL": str(gpu_memory_total),
             "MOCK_GPU_PROCESSES": gpu_processes,
@@ -638,7 +641,6 @@ def _run_installer(
             "MOCK_IPTABLES_STATE": str(tmp_path / "iptables-state.json"),
             "HOST_OS_RELEASE": str(os_release),
             "PATH": f"{fake_bin}:{environment['PATH']}",
-            "RESET_INCOMPLETE_INSTALL": "YES" if reset_incomplete else "",
         }
     )
     environment.pop("OFFLINE_ENV", None)
@@ -646,8 +648,6 @@ def _run_installer(
     arguments = ["bash", entrypoint]
     if explicit_gpu:
         arguments += ["--gpu", gpu]
-    if reinstall:
-        arguments.append("--reinstall")
     result = subprocess.run(
         arguments,
         cwd=release,
@@ -656,7 +656,7 @@ def _run_installer(
         text=True,
         timeout=30,
     )
-    return result, release, command_log, mock_root
+    return result, deployment, command_log, mock_root
 
 
 def test_installer_completes_with_five_clients_and_host_automation(
@@ -777,8 +777,11 @@ def test_installer_completes_with_five_clients_and_host_automation(
     install_log = (release / "install.log").read_text(encoding="utf-8")
     assert "STEP 19/19" in install_log
     assert "Generated 5 unique client credential file(s)" in install_log
-    assert "Extracting new image archive: images/app.tar" in install_log
-    assert "Extracting model files from models.zip" in install_log
+    assert (
+        "images/app.tar already matches this release; using the existing file"
+        in install_log
+    )
+    assert "Models already match models.zip; skipping extraction" in install_log
     assert "Removing stale image archive: images/runtime-images.tar" in install_log
     assert not (release / "images" / "runtime-images.tar").exists()
 
@@ -853,16 +856,15 @@ def test_installer_rejects_nonleading_docker_user_before_cleanup(
     assert "docker rm -f" not in commands
 
 
-def test_installer_preserves_incomplete_state_when_docker_user_is_missing(
+def test_installer_starts_with_clean_clone_when_docker_user_is_missing(
     tmp_path: Path,
 ) -> None:
-    result, release, command_log, _ = _run_installer(
-        tmp_path, docker_user_chain=False, reset_incomplete=True
-    )
+    result, release, command_log, _ = _run_installer(tmp_path, docker_user_chain=False)
 
     assert result.returncode != 0
-    assert (release / ".env").exists()
+    assert not (release / ".env").exists()
     assert "required DOCKER-USER firewall chain" in result.stdout
+    assert "Replacing deployed clone" in result.stderr
     commands = command_log.read_text(encoding="utf-8")
     assert "docker compose --project-directory" not in commands
     assert "docker rm -f" not in commands
@@ -1000,6 +1002,26 @@ def test_installer_defaults_to_gpu_profile_without_flag(tmp_path: Path) -> None:
     assert "LLAMA_GPU_LAYERS=16" in (release / ".env").read_text(encoding="utf-8")
 
 
+def test_installer_populates_source_caches_before_creating_clone(
+    tmp_path: Path,
+) -> None:
+    result, deployment, _, _ = _run_installer(tmp_path, gpu="no")
+    source = tmp_path / "chatbot"
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert source != deployment
+    assert not (source / ".env").exists()
+    assert not (source / "config/.installed").exists()
+    assert (source / "images" / "app.tar").is_file()
+    assert (source / "models" / "SHA256SUMS").is_file()
+    assert (deployment / "images" / "app.tar").is_file()
+    assert (deployment / "models" / "SHA256SUMS").is_file()
+    assert "Source images cache is absent; extracting" in result.stderr
+    assert "Source models cache is absent; extracting" in result.stderr
+    assert "Replacing deployed clone" in result.stderr
+    assert "Extracting new image archive" not in result.stdout
+
+
 def test_installer_update_flow_loads_only_missing_or_changed_images(
     tmp_path: Path,
 ) -> None:
@@ -1032,27 +1054,13 @@ def test_installer_update_flow_loads_only_missing_or_changed_images(
     assert "Extracting model files from models.zip" not in result.stdout
 
 
-def test_installer_refuses_completed_install_without_reinstall(
-    tmp_path: Path,
-) -> None:
+def test_installer_replaces_completed_deployed_clone(tmp_path: Path) -> None:
     result, release, _, _ = _run_installer(tmp_path, installed=True)
-
-    assert result.returncode != 0
-    assert "This folder is already configured." in result.stdout
-    assert "--reinstall" in result.stdout
-    assert (release / "config/.installed").is_file()
-    assert (release / ".env").is_file()
-
-
-def test_installer_reinstall_wipes_completed_install(tmp_path: Path) -> None:
-    result, release, command_log, _ = _run_installer(
-        tmp_path, installed=True, reinstall=True
-    )
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert (release / "config/.installed").is_file()
-    commands = command_log.read_text(encoding="utf-8")
-    assert "down -v --remove-orphans" in commands
+    assert not (release / "old-runtime.txt").exists()
+    assert "Replacing deployed clone" in result.stderr
     install_log = (release / "install.log").read_text(encoding="utf-8")
     assert "STEP 19/19" in install_log
     assert "Generated 5 unique client credential file(s)" in install_log
@@ -1080,9 +1088,9 @@ def test_installer_reports_missing_chatbot_zip(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert not (release / ".env").exists()
     assert (
-        f"Required release archive not found: {tmp_path}/chatbot.zip" in result.stdout
+        f"Required release archive not found: {tmp_path}/chatbot.zip" in result.stderr
     )
-    assert "Copy chatbot.zip into" in result.stdout
+    assert "Copy chatbot.zip into" in result.stderr
 
 
 def test_installer_reports_missing_archive_for_missing_image(
@@ -1094,10 +1102,10 @@ def test_installer_reports_missing_archive_for_missing_image(
 
     assert result.returncode != 0
     assert not (release / ".env").exists()
-    assert "Image archives not available yet: app.tar" in result.stdout
-    assert "Docker image is missing and images/app.tar was not found." in result.stdout
-    assert f"Copy the updated images/app.tar into {release}/images" in result.stdout
-    assert "docker load -i" not in command_log.read_text(encoding="utf-8")
+    assert "Source images cache is absent" in result.stderr
+    assert f"{tmp_path}/images.zip is not available" in result.stderr
+    commands = command_log.read_text(encoding="utf-8") if command_log.exists() else ""
+    assert "docker load -i" not in commands
 
 
 def test_installer_supports_development_layout_without_root_entrypoint(
@@ -1141,7 +1149,7 @@ def test_installer_rejects_unknown_accelerator_before_cleanup(tmp_path: Path) ->
 
     assert result.returncode != 0
     assert not (release / ".env").exists()
-    assert "--gpu must be yes or no" in result.stdout
+    assert "--gpu must be yes or no" in result.stderr
     commands = command_log.read_text(encoding="utf-8") if command_log.is_file() else ""
     assert "docker rm -f" not in commands
 
@@ -1199,15 +1207,6 @@ def test_installer_prints_diagnostics_when_chatbot_remains_unhealthy(
     assert "down -v --remove-orphans" in commands
 
 
-def test_reset_removes_previous_project_and_legacy_volumes(tmp_path: Path) -> None:
-    result, release, command_log, _ = _run_installer(tmp_path, reset_incomplete=True)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    commands = command_log.read_text(encoding="utf-8")
-    assert "down -v --remove-orphans" in commands
-    assert EXPECTED_VOLUME_REMOVAL_COMMAND in commands
-
-
 def test_installer_allows_small_desktop_gpu_usage(tmp_path: Path) -> None:
     desktop_processes = (
         "6843, /usr/bin/nautilus, 37\n"
@@ -1233,43 +1232,6 @@ def test_installer_allows_1023_mib_residual_gpu_usage(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Total residual GPU memory: 1023 MiB" in result.stdout
     assert "total residual GPU usage is below 1024 MiB" in result.stdout
-
-
-def test_incomplete_gpu_reset_stops_labeled_containers_before_gpu_check(
-    tmp_path: Path,
-) -> None:
-    result, release, command_log, _ = _run_installer(
-        tmp_path,
-        reset_incomplete=True,
-        gpu_memory_used=1024,
-    )
-
-    assert result.returncode != 0
-    assert (release / ".env").exists()
-    commands = command_log.read_text(encoding="utf-8")
-    assert (
-        commands.index("docker stop current-labeled")
-        < commands.index("nvidia-smi --query-gpu=memory.used")
-        < commands.index("docker start current-labeled")
-    )
-    assert "docker rm -f" not in commands
-    assert "docker volume rm" not in commands
-
-
-def test_incomplete_gpu_reset_ignores_stopped_labeled_containers(
-    tmp_path: Path,
-) -> None:
-    result, _, command_log, _ = _run_installer(
-        tmp_path,
-        reset_incomplete=True,
-        gpu_memory_used=0,
-        labeled_container_running=False,
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    commands = command_log.read_text(encoding="utf-8")
-    assert "docker ps -q" in commands
-    assert "docker stop current-labeled" not in commands
 
 
 def test_installer_blocks_1024_mib_residual_gpu_usage(tmp_path: Path) -> None:
@@ -1406,16 +1368,18 @@ def test_installer_online_mode_delegates_to_accelerator(tmp_path: Path) -> None:
         timeout=30,
     )
 
+    deployment = tmp_path / "chatbot_offline"
     assert result.returncode == 0, result.stdout + result.stderr
     assert "STEP 4/4" in result.stdout
-    assert (release / ".env").is_file()
-    assert (release / ".env").read_text(encoding="utf-8") == (
-        release / ".env.example"
+    assert not (release / ".env").exists()
+    assert (deployment / ".env").is_file()
+    assert (deployment / ".env").read_text(encoding="utf-8") == (
+        deployment / ".env.example"
     ).read_text(encoding="utf-8")
     commands = command_log.read_text(encoding="utf-8")
     assert "accelerator.sh online cpu start" in commands
     # Online mode performs no offline hardening.
-    assert not (release / "config/.installed").exists()
-    assert not (release / "config/clients").exists()
+    assert not (deployment / "config/.installed").exists()
+    assert not (deployment / "config/clients").exists()
     assert "configure_host.sh" not in commands
     assert "manage_client.sh" not in commands
