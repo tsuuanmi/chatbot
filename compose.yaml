@@ -1,0 +1,404 @@
+name: chatbot
+
+services:
+  postgres:
+    container_name: chatbot-postgres
+    image: ${POSTGRES_IMAGE}
+    pull_policy: never
+
+    group_add:
+      - "${CHATBOT_SECRET_GID}"
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ${CHATBOT_RUNTIME_DIR:-./runtime}/secrets/postgres_password:/run/secrets/postgres_password:ro,z
+
+    expose:
+      - "5432"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+    restart: unless-stopped
+
+    security_opt:
+      - no-new-privileges:true
+
+
+  db-migrate:
+    profiles:
+      - tools
+
+    image: ${POSTGRES_IMAGE}
+    pull_policy: never
+
+    group_add:
+      - "${CHATBOT_SECRET_GID}"
+
+    entrypoint:
+      - /bin/sh
+      - /database/migrate.sh
+
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER}
+      PGDATABASE: ${POSTGRES_DB}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+
+    volumes:
+      - ./database:/database:ro,z
+      - ${CHATBOT_RUNTIME_DIR:-./runtime}/secrets/postgres_password:/run/secrets/postgres_password:ro,z
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: "no"
+    read_only: true
+
+    tmpfs:
+      - /tmp
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
+
+  index-knowledge:
+    profiles:
+      - tools
+
+    image: ${CHATBOT_IMAGE}
+    pull_policy: never
+
+    group_add:
+      - "${CHATBOT_SECRET_GID}"
+
+    entrypoint:
+      - python
+      - /app/tools/index_knowledge.py
+
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION}
+      EMBEDDING_THREADS: ${EMBEDDING_THREADS:-4}
+      FASTEMBED_CACHE_PATH: /opt/models/fastembed
+
+    volumes:
+      - ./data/documents:/data:ro,z
+      - ${CHATBOT_RUNTIME_DIR:-./runtime}/secrets/postgres_password:/run/secrets/postgres_password:ro,z
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: "no"
+
+    security_opt:
+      - no-new-privileges:true
+
+
+  index-figures:
+    profiles:
+      - tools
+
+    image: ${CHATBOT_IMAGE}
+    pull_policy: never
+
+    group_add:
+      - "${CHATBOT_SECRET_GID}"
+
+    entrypoint:
+      - python
+      - /app/tools/index_figures.py
+
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+
+      LLAMA_BASE_URL: http://llama-server:8080/v1
+      LLAMA_API_KEY_FILE: /run/secrets/llama_api_key
+      LLAMA_MODEL_ALIAS: ${LLAMA_MODEL_ALIAS}
+
+      FIGURE_DIR: /data/figures
+      FIGURE_DESCRIPTION_VERSION: ${FIGURE_DESCRIPTION_VERSION:-1}
+
+    volumes:
+      - ${FIGURE_DIR:-./data/figures}:/data/figures:ro,z
+      - ${CHATBOT_RUNTIME_DIR:-./runtime}/secrets/llama_api_key:/run/secrets/llama_api_key:ro,z
+      - ${CHATBOT_RUNTIME_DIR:-./runtime}/secrets/postgres_password:/run/secrets/postgres_password:ro,z
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      llama-server:
+        condition: service_healthy
+
+    restart: "no"
+    read_only: true
+
+    tmpfs:
+      - /tmp
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
+
+  llama-server:
+    container_name: chatbot-llama
+    image: ${LLAMA_CPU_IMAGE}
+    pull_policy: never
+
+    group_add:
+      - "${CHATBOT_SECRET_GID}"
+
+    command:
+      - -m
+      - /models/${LLAMA_MODEL_NAME}
+      - --alias
+      - ${LLAMA_MODEL_ALIAS}
+      - --mmproj
+      - /models/${MMPROJ_MODEL}
+      - --spec-draft-model
+      - /models/${MTP_MODEL_NAME}
+      - --spec-type
+      - ${LLAMA_SPEC_TYPE:-draft-mtp}
+      - --spec-draft-n-max
+      - "${LLAMA_SPEC_DRAFT_N_MAX:-2}"
+      - --spec-draft-ngl
+      - "${LLAMA_GPU_LAYERS_DRAFT:-0}"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - ${LLAMA_CTX_SIZE:-8192}
+      - --batch-size
+      - "${LLAMA_BATCH_SIZE:-512}"
+      - --ubatch-size
+      - "${LLAMA_UBATCH_SIZE:-512}"
+      - --threads
+      - ${LLAMA_THREADS:-8}
+      - --threads-batch
+      - ${LLAMA_THREADS:-8}
+      - --n-gpu-layers
+      - "${LLAMA_GPU_LAYERS:-0}"
+      - --parallel
+      - "1"
+      - --jinja
+      - --reasoning
+      - "off"
+
+    environment:
+      LLAMA_ARG_API_KEY_FILE: /run/secrets/llama_api_key
+
+    volumes:
+      - ${MODEL_DIR}:/models:ro,z
+      - ${CHATBOT_RUNTIME_DIR:-./runtime}/secrets/llama_api_key:/run/secrets/llama_api_key:ro,z
+
+    expose:
+      - "8080"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-fsS",
+          "http://127.0.0.1:8080/health"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 120
+      start_period: 20s
+
+    restart: unless-stopped
+
+    security_opt:
+      - no-new-privileges:true
+
+
+  chatbot:
+    container_name: chatbot-app
+    image: ${CHATBOT_IMAGE}
+    pull_policy: never
+
+    group_add:
+      - "${CHATBOT_SECRET_GID}"
+
+    command:
+      - python
+      - -m
+      - chatbot_app.server
+
+    environment:
+      HAYHOOKS_HOST: 0.0.0.0
+      HAYHOOKS_PORT: "1416"
+      HAYHOOKS_PIPELINES_DIR: /app/pipelines
+      HAYHOOKS_SHOW_TRACEBACKS: "false"
+      LOG: INFO
+
+      CHAT_AUTH_FILE: /run/secrets/chat_auth.json
+
+      HAYHOOKS_CORS_ALLOW_ORIGINS: '[]'
+      HAYHOOKS_CORS_ALLOW_METHODS: '["GET","POST","OPTIONS"]'
+      HAYHOOKS_CORS_ALLOW_HEADERS: '["Content-Type","Authorization"]'
+      HAYHOOKS_CORS_ALLOW_CREDENTIALS: "false"
+      HAYHOOKS_DASHBOARD_ENABLED: "false"
+      HAYHOOKS_CHAINLIT_ENABLED: "false"
+
+      LLAMA_BASE_URL: http://llama-server:8080/v1
+      LLAMA_API_KEY_FILE: /run/secrets/llama_api_key
+      LLAMA_MODEL_ALIAS: ${LLAMA_MODEL_ALIAS}
+      LLAMA_MAX_OUTPUT_TOKENS: ${LLAMA_MAX_OUTPUT_TOKENS:-2048}
+
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION}
+      EMBEDDING_THREADS: ${EMBEDDING_THREADS:-4}
+      FASTEMBED_CACHE_PATH: /opt/models/fastembed
+
+      HISTORY_TURN_LIMIT: ${HISTORY_TURN_LIMIT:-6}
+      HISTORY_CHAR_LIMIT: ${HISTORY_CHAR_LIMIT:-8000}
+      CHAT_MESSAGE_MAX_CHARS: ${CHAT_MESSAGE_MAX_CHARS:-8000}
+      CHAT_GENERATION_QUEUE_TIMEOUT_SECONDS: ${CHAT_GENERATION_QUEUE_TIMEOUT_SECONDS:-5}
+      RAG_MIN_SEMANTIC_SCORE: ${RAG_MIN_SEMANTIC_SCORE:-0.68}
+
+    volumes:
+      - ./pipelines:/app/pipelines:ro,z
+      - ./data/documents:/app/data/documents:ro,z
+      - ${CHATBOT_RUNTIME_DIR:-./runtime}/secrets/chat_auth.json:/run/secrets/chat_auth.json:ro,z
+      - ${CHATBOT_RUNTIME_DIR:-./runtime}/secrets/llama_api_key:/run/secrets/llama_api_key:ro,z
+      - ${CHATBOT_RUNTIME_DIR:-./runtime}/secrets/postgres_password:/run/secrets/postgres_password:ro,z
+
+    ports:
+      - "127.0.0.1:1416:1416"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      llama-server:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:1416/live', timeout=5).read()"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+    restart: unless-stopped
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+
+    cap_drop:
+      - ALL
+
+    pids_limit: 256
+
+    init: true
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+
+    security_opt:
+      - no-new-privileges:true
+
+
+  proxy:
+    container_name: chatbot-proxy
+    image: ${NGINX_IMAGE}
+    pull_policy: never
+
+    user: "101:101"
+
+    entrypoint:
+      - nginx
+
+    command:
+      - -g
+      - daemon off;
+
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro,z
+
+    ports:
+      - "${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-18080}:8080"
+
+    depends_on:
+      chatbot:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:8080/live"
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+    restart: unless-stopped
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
+    stop_signal: SIGQUIT
+    stop_grace_period: 15s
+
+
+volumes:
+  postgres_data:

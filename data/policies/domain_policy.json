@@ -1,0 +1,42 @@
+{
+  "domain": {
+    "minimum_confidence": 0.35,
+    "minimum_margin": 0.05
+  },
+
+  "risk": {
+    "semantic_fallback_threshold": 0.90,
+
+    "decision_actions": [
+      "kết luận",
+      "xác nhận",
+      "xác định",
+      "khẳng định",
+      "đưa ra kết luận",
+      "kết luận chính thức"
+    ],
+
+    "sensitive_subjects": [
+      "cha ruột",
+      "mẹ ruột",
+      "quan hệ huyết thống",
+      "huyết thống",
+      "nghi phạm",
+      "mẫu hiện trường",
+      "hiện trường",
+      "danh tính",
+      "giá trị chứng cứ",
+      "chứng cứ pháp lý",
+      "pháp lý",
+      "hỗn hợp dna"
+    ],
+
+    "direct_high_risk_phrases": [
+      "thông số bắt buộc theo sop",
+      "bắt buộc theo sop",
+      "thông số nhiệt độ và thời gian bắt buộc",
+      "kết luận giá trị chứng cứ",
+      "kết luận pháp lý"
+    ]
+  }
+}

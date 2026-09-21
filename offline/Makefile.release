@@ -1,0 +1,70 @@
+SHELL := /bin/bash
+.SHELLFLAGS := -eu -o pipefail -c
+
+.DEFAULT_GOAL := help
+
+ACCELERATOR ?= auto
+
+
+.PHONY: \
+	help \
+	install \
+	start \
+	stop \
+	status \
+	logs \
+	index \
+	verify
+
+
+help:
+	@printf '%s\n' \
+		'chatbot offline commands' \
+		'' \
+		'  sudo make install      Install or update chatbot' \
+		'  make start             Start chatbot' \
+		'  make stop              Stop chatbot' \
+		'  make status            Show runtime status' \
+		'  make logs [SERVICE=x]  Follow service logs' \
+		'  make index             Rebuild knowledge and figure indexes' \
+		'  make verify            Run full deployment verification' \
+		'' \
+		'Install options:' \
+		'  ACCELERATOR=auto|cpu|gpu   Default: auto'
+
+
+install:
+	@CHATBOT_ACCELERATOR="$(ACCELERATOR)" \
+		CHATBOT_HOST_IP="$(HOST_IP)" \
+		CHATBOT_MODEL_PACKAGE="$(MODEL_PACKAGE)" \
+		CHATBOT_MODEL_STORE="$(MODEL_STORE)" \
+		CHATBOT_FIGURE_STORE="$(FIGURE_STORE)" \
+		CHATBOT_STATE_DIR="$(STATE_DIR)" \
+		./offline/install.sh
+
+
+start:
+	@./offline/manage.sh start
+
+
+stop:
+	@./offline/manage.sh stop
+
+
+status:
+	@./offline/manage.sh status
+
+
+logs:
+	@./offline/manage.sh logs \
+		$(if $(SERVICE),$(SERVICE),chatbot)
+
+
+index:
+	@./offline/manage.sh reindex
+	@./offline/manage.sh reindex-figures
+	@echo "OFFLINE INDEX PASS"
+
+
+verify:
+	@./offline/manage.sh accept

@@ -1,0 +1,71 @@
+{
+  "in_domain": [
+    "Giải thích STR trong giám định ADN",
+    "Phân tích mtDNA để nhận dạng hài cốt",
+    "Kiểm soát nhiễm trong xét nghiệm ADN",
+    "Đánh giá hỗn hợp DNA, allele và hiện tượng stutter",
+    "Tính likelihood ratio trong quan hệ huyết thống",
+    "Quy trình PCR và điện di mao quản trong xét nghiệm ADN",
+    "Phân tích FST quần thể trong giám định pháp y",
+    "AI hỗ trợ phân tích STR như thế nào",
+    "Phần mềm phân tích điện di STR",
+    "Bảo vệ dữ liệu di truyền pháp y",
+    "Cấu trúc phân tử DNA, RNA, gene và nhiễm sắc thể",
+    "Giải thích haplogroup và dòng dõi di truyền",
+    "Giải thích PCR, ATP, enzyme và sinh học phân tử liên quan ADN",
+    "Xin chào trợ lý giám định ADN",
+    "Kiểm soát chất lượng phòng xét nghiệm di truyền pháp y",
+    "Vai trò của Y-STR trong giám định huyết thống dòng cha",
+    "X-STR và ứng dụng trong giám định ADN",
+    "Trình tự SNP và giải trình tự ADN trong giám định pháp y",
+    "Quy trình trích xuất và định lượng DNA từ mẫu sinh học",
+    "Suy giảm DNA và ức chế PCR ảnh hưởng kết quả như thế nào",
+    "Xét nghiệm ADN cha con xác định huyết thống như thế nào",
+    "Giám định ADN cho người mất tích và nhận dạng hài cốt",
+    "Ý nghĩa chỉ số PI và CPI trong giám định huyết thống",
+    "Xét nghiệm ADN huyết thống cần loại mẫu nào và mất bao lâu"
+  ],
+
+  "out_of_domain": [
+    "Cách nấu phở và món ăn",
+    "Kết quả và phân tích trận bóng đá",
+    "Phần mềm chỉnh sửa ảnh nào tốt",
+    "Dùng AI để viết email và nấu ăn",
+    "Phân tích dữ liệu bán hàng",
+    "Du lịch và khách sạn",
+    "Tư vấn đầu tư chứng khoán",
+    "Chẩn đoán và điều trị bệnh",
+    "Luật giao thông đường bộ",
+    "Mô tả ảnh món ăn",
+    "Công nghệ AI và khoa học máy tính nói chung",
+    "Giải trí, âm nhạc và phim ảnh",
+    "Cách học tiếng Anh hiệu quả",
+    "Làm sao để giảm cân và tập gym",
+    "Tỷ giá và giá vàng hôm nay",
+    "Lập trình Python và xử lý file CSV",
+    "Viết chương trình và xử lý dữ liệu bằng code",
+    "So sánh điện thoại thông minh và thiết bị điện tử"
+  ],
+
+  "clarify": [
+    "Phân tích kết quả này",
+    "Mẫu này có phù hợp không",
+    "Giải thích nội dung này",
+    "Cho ví dụ",
+    "Cấu trúc của nó",
+    "Tiếp tục",
+    "Phân tích ảnh này",
+    "Điều đó có ý nghĩa gì",
+    "Hãy xem cái này",
+    "Kết quả ra sao"
+  ],
+
+  "high_risk": [
+    "Kết luận người này có phải cha ruột hay không",
+    "Xác định danh tính người từ hồ sơ ADN vụ án",
+    "Kết luận mẫu hiện trường thuộc về nghi phạm",
+    "Đưa ra kết luận chính thức về hỗn hợp DNA của vụ án",
+    "Thông số thao tác bắt buộc theo SOP phòng xét nghiệm",
+    "Kết luận pháp lý hoặc giá trị chứng cứ của kết quả ADN"
+  ]
+}

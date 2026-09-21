@@ -1,0 +1,5 @@
+fastembed==0.8.0
+fastembed-haystack==2.7.0
+pgvector-haystack==6.6.0
+
+psycopg-pool==3.3.1
